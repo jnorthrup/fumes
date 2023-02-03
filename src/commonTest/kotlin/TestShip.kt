@@ -1,28 +1,40 @@
 package  ed.fumes.ed.fumes
 
-import ed.fumes.ed.fumes.FSDBooster
 import ed.fumes.ed.fumes.Ship
 import kotlin.test.*
 
 class TestShip {
     @Test
     fun testShip1() {
-
-        // show me a SideWinder ship with no booster
-        val sidey = Ship("SideWinder", 43.2, BaseFSD.base2E.fsd.copy(), 2.0, 4.0)
+        //   SideWinder ship with no booster
+        val sidey = Ship("SideWinder", 43.2, BaseFSD.fsd2E.fsd.copy(), 2.0, 4.0)
 
         // anaconda with a 5H booster
-        val anaconda = Ship("Anaconda", 1066.4, BaseFSD.base6E.fsd.copy(), 32.0, 114.0, FSDBooster.booster5H)
+        val anaconda = Ship("Anaconda", 1066.4, BaseFSD.fsd6E.fsd.copy(), 32.0, 114.0, FSDBooster.booster5H)
 
-        // show me the jump range for the sidey with 2 tons of fuel
-        println("Sidey jump range: ${sidey.jumpRangeForFuel(2.0)}")
+        listOf(sidey, anaconda).forEach {
+            println(it)
 
-        // show me the jump range for the anaconda with 32 tons of fuel
-        println("Anaconda jump range: ${anaconda.jumpRangeForFuel(32.0)}")
+            //            jump 2 LY
+            val jump2 = it.fuelUse(2.0)
+            println("jump 2 LY: uses $jump2 tons")
 
-        // show me the fuel cost for a 1000 ly jump in the sidey
-        println("Sidey fuel cost for 2 ly jump: ${sidey.fuelCostForDistance(2.0)}")
+            //            jump 10 LY
+            val jump10 = it.fuelUse(10.0)
+            println("jump 10 LY: uses $jump10 tons")
 
-        // show me the fuel cost for a 1000 ly jump in the anaconda
-        println("Anaconda fuel cost for 2 ly jump: ${anaconda.fuelCostForDistance(2.0)}")
-    }}
+            //jump with 2 tons of fuel
+            val jumpRange2 = it.jumpRangeForFuel(2.0)
+            println(" attempted jump with 2 tons of fuel: $jumpRange2 LY")
+
+            //jump with full fuel empty cargo
+            val jumpRangeFull = it.jumpRangeForFuel(it.fuelCapacity)
+            println("jump with full fuel empty cargo: $jumpRangeFull LY")
+
+
+            //show maxrange with a  copy of the ship
+            val maxRange = it.copy().maxJumpRange()
+            println("max range: $maxRange LY")
+        }
+    }
+}

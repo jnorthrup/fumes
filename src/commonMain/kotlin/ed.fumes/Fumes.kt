@@ -2,7 +2,6 @@ package ed.fumes.ed.fumes
 
 import ed.fumes.ed.fumes.FrameShiftDrive.FSDClass.*
 import ed.fumes.ed.fumes.FrameShiftDrive.FSDRating.*
-import kotlin.jvm.JvmStatic
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -11,49 +10,50 @@ typealias Tons = Double
 typealias LY = Double
 
 data class FrameShiftDrive(
-    val rating: FSDRating,
     val fsdClass: FSDClass,
+    val rating: FSDRating,
     var optimalMass: Tons,
     var maxFuelPerJump: Tons
 ) {
     enum class FSDRating(val linearConstant: Double) { A(12.0), B(10.0), C(8.0), D(10.0), E(11.0), }
     enum class FSDClass(val powerConstant: Double) { C2(2.00), C3(2.15), C4(2.30), C5(2.45), C6(2.60), C7(2.75), C8(2.90) }
 
+    var boostFactor = 1.0
     val linearConstant: Double get() = rating.linearConstant
     val powerConstant: Double get() = fsdClass.powerConstant
 }
 
 enum class BaseFSD(val fsd: FrameShiftDrive) {
-    base2A(FrameShiftDrive(A, C2, 2.50, 0.60)),
-    base2B(FrameShiftDrive(FrameShiftDrive.FSDRating.B, C2, 1.00, 0.60)),
-    base2C(FrameShiftDrive(C, C2, 2.50, 0.60)),
-    base2D(FrameShiftDrive(D, C2, 4.00, 0.80)),
-    base2E(FrameShiftDrive(E, C2, 2.50, 0.90)),
-    base3A(FrameShiftDrive(A, C3, 5.00, 1.20)),
-    base3B(FrameShiftDrive(B, C3, 2.00, 1.20)),
-    base3C(FrameShiftDrive(C, C3, 5.00, 1.20)),
-    base3D(FrameShiftDrive(D, C3, 8.00, 1.50)),
-    base3E(FrameShiftDrive(E, C3, 5.00, 1.80)),
-    base4A(FrameShiftDrive(A, C4, 10.00, 2.00)),
-    base4B(FrameShiftDrive(B, C4, 4.00, 2.00)),
-    base4C(FrameShiftDrive(C, C4, 5.00, 2.00)),
-    base4D(FrameShiftDrive(D, C4, 16.00, 2.50)),
-    base4E(FrameShiftDrive(E, C4, 10.00, 3.00)),
-    base5A(FrameShiftDrive(A, C5, 20.00, 3.30)),
-    base5B(FrameShiftDrive(B, C5, 8.00, 3.30)),
-    base5C(FrameShiftDrive(C, C5, 10.00, 3.30)),
-    base5D(FrameShiftDrive(D, C5, 32.00, 4.10)),
-    base5E(FrameShiftDrive(E, C5, 20.00, 5.00)),
-    base6A(FrameShiftDrive(A, C6, 40.00, 5.30)),
-    base6B(FrameShiftDrive(B, C6, 16.00, 5.30)),
-    base6C(FrameShiftDrive(C, C6, 40.00, 5.30)),
-    base6D(FrameShiftDrive(D, C6, 64.00, 6.60)),
-    base6E(FrameShiftDrive(E, C6, 40.00, 8.00)),
-    base7A(FrameShiftDrive(A, C7, 80.00, 8.50)),
-    base7B(FrameShiftDrive(B, C7, 32.00, 8.50)),
-    base7C(FrameShiftDrive(C, C7, 80.00, 8.50)),
-    base7D(FrameShiftDrive(D, C7, 128.00, 10.60)),
-    base7E(FrameShiftDrive(E, C7, 80.00, 12.80)),
+    fsd2E(FrameShiftDrive(C2, E, 48.0, 0.6)),
+    fsd2D(FrameShiftDrive(C2, D, 54.0, 0.6)),
+    fsd2C(FrameShiftDrive(C2, C, 60.0, 0.6)),
+    fsd2B(FrameShiftDrive(C2, B, 75.0, 0.8)),
+    fsd2A(FrameShiftDrive(C2, A, 90.0, 0.9)),
+    fsd3E(FrameShiftDrive(C3, E, 80.0, 1.2)),
+    fsd3D(FrameShiftDrive(C3, D, 90.0, 1.2)),
+    fsd3C(FrameShiftDrive(C3, C, 100.0, 1.2)),
+    fsd3B(FrameShiftDrive(C3, B, 125.0, 1.5)),
+    fsd3A(FrameShiftDrive(C3, A, 150.0, 1.8)),
+    fsd4E(FrameShiftDrive(C4, E, 280.0, 2.0)),
+    fsd4D(FrameShiftDrive(C4, D, 315.0, 2.0)),
+    fsd4C(FrameShiftDrive(C4, C, 350.0, 2.0)),
+    fsd4B(FrameShiftDrive(C4, B, 438.0, 2.5)),
+    fsd4A(FrameShiftDrive(C4, A, 525.0, 3.0)),
+    fsd5E(FrameShiftDrive(C5, E, 560.0, 3.3)),
+    fsd5D(FrameShiftDrive(C5, D, 630.0, 3.3)),
+    fsd5C(FrameShiftDrive(C5, C, 700.0, 3.3)),
+    fsd5B(FrameShiftDrive(C5, B, 875.0, 4.1)),
+    fsd5A(FrameShiftDrive(C5, A, 1050.0, 5.0)),
+    fsd6E(FrameShiftDrive(C6, E, 960.0, 5.3)),
+    fsd6D(FrameShiftDrive(C6, D, 1080.0, 5.3)),
+    fsd6C(FrameShiftDrive(C6, C, 1200.0, 5.3)),
+    fsd6B(FrameShiftDrive(C6, B, 1500.0, 6.6)),
+    fsd6A(FrameShiftDrive(C6, A, 1800.0, 8.0)),
+    fsd7E(FrameShiftDrive(C7, E, 1440.0, 8.5)),
+    fsd7D(FrameShiftDrive(C7, D, 1620.0, 8.5)),
+    fsd7C(FrameShiftDrive(C7, C, 1800.0, 8.5)),
+    fsd7B(FrameShiftDrive(C7, B, 2250.0, 10.6)),
+    fsd7A(FrameShiftDrive(C7, A, 2700.0, 12.8)),
 }
 
 enum class FSDBooster(
@@ -77,82 +77,74 @@ data class Ship(
     val fsdBooster: FSDBooster? = null,
     var fuelRemaining: Tons = fuelCapacity,
     var cargoRemaining: Tons = 0.0,
-    var boostFactor: Double = 1.0,
 ) {
+    var boostFactor: Double
+        get() = fsd.boostFactor
+        set(value) {
+            fsd.boostFactor = value
+        }
+
     val totalMass: Tons = unladedMass + cargoRemaining + fuelRemaining
 
-    /**
+    fun jumpRangeForFuel(fuel1: Tons): LY {
+        val fuel = min(min(fuel1, fsd.maxFuelPerJump), fuelRemaining)
+        val mass = totalMass
+        val massf = fsd.optimalMass / mass
+        val fuelmultiplier = fsd.linearConstant * 0.001
+        val grdnBoost: LY = fsdBooster?.jumpRangeIncrease ?: 0.0
 
-     from earthnuker https://gist.github.com/Earthnuker/2cba9446ff4d78ffb3df69c97c25d706
-    # Ship Jump calculations
-
-    FSD Fuel consumption ([Elite: Dangerous Wiki](https://elite-dangerous.fandom.com/wiki/Frame_Shift_Drive#Hyperspace_Fuel_Equation)):
-
-    Solving for $dist$ gives the jump range (in Ly) for a given amount of fuel (in tons)
-
-    Assuming $f\_{max}$ tons of available fuel gives us the maximum jump range for a single jump
-
-    the FSDBooster increases the maximum jump range by $B_g$ light years using the same amount of fuel at max jump range.  lower distances will use less fuel according to the equation below.
-
-    $$dist = \frac{boost \cdot m\_{opt} \cdot \left(\frac{1000000.0 \cdot \left(\frac{boost^{2} \cdot m\_{opt} \cdot \left(\frac{1000.0 \cdot \min\left(f\_{max}, m\_{fuel}\right)}{l}\right)^{\frac{1}{p}}}{B\_{g} \cdot \left(m\_{fuel} + m\_{ship}\right) + boost^{2} \cdot m\_{opt} \cdot \left(\frac{1000.0 \cdot \min\left(f\_{max}, m\_{fuel}\right)}{l}\right)^{\frac{1}{p}}}\right)^{- p} \cdot \min\left(f\_{max}, m\_{fuel}\right)}{l^{2}}\right)^{\frac{1}{p}}}{m\_{fuel} + m\_{ship}}$$
-
-    Where:
-
-     * $Fuel$ is the fuel needed to jump (in tons)
-     * $l$ is the linear constant of your FSD (depends on the rating)
-     * $p$ is the power constant of your FSD (depends on the class)
-     * $m\_{ship}$ is the mass of your ship (including cargo but not fuel)
-     * $m\_{fuel}$ is the amount of fuel in tons currently stored in your tanks
-     * $m\_{opt}$ is the optimized mass of your FSD (in tons)
-     * $f\_{max}$ is the maximum amount of fuel your FSD can use per jump
-     * $boost$ is the "boost factor" of your FSD (1.0 when jumping normally, 1.5 when supercharged by a white dwarf, 4.0 for a neutron star, etc)
-     * $dist$ is the distance you can jump with a given fuel amount
-     * $dist\_{max}$ is the maximum distance you can jump (when $m\_{fuel}=f\_{max}$)
-     * $B\_{g}$ is the amount of Ly added by your Guardian FSD Booster
-     * $e\_{fuel}$ is the efficiency increase added by the Guardian FSD Booster
-     *
-     * restating the above as kotlin with the current file's classes we get:
-     */
-    fun jumpRangeForFuel(fuelToSpend: Tons = min(fsd.maxFuelPerJump, fuelRemaining)): LY {
-        val fsd = fsd
-        val booster = fsdBooster
-        val mOpt = fsd.optimalMass
-        val fMax = fsd.maxFuelPerJump
-        val boost = boostFactor
-        val l = fsd.linearConstant
-        val p = fsd.powerConstant
-        val bg: LY = booster?.jumpRangeIncrease ?: 0.0
-        val pInverse = 1.0 / p
-        val fuelK = 1000.0 * min(fMax, fuelToSpend)
-        val l2 = l * l
-        val bp2mOptfklpinv = boost.pow(2) * mOpt * (fuelK / l).pow(pInverse)
-        return ((boost * mOpt * (1000000.0 * (
-                bp2mOptfklpinv /
-                        (bg * totalMass + bp2mOptfklpinv)
-                ).pow(-p) * min(fMax, fuelToSpend)) / l2).pow(pInverse)) / (totalMass)
+        return if (fsd.maxFuelPerJump == fuel) {
+            val powerf = (fsd.maxFuelPerJump / fuelmultiplier).pow(1 / fsd.powerConstant)
+            val basev = powerf * massf
+            (basev + grdnBoost) * boostFactor
+        } else {
+            val basemaxrange: LY =
+                fsd.optimalMass / mass * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
+            val boostfactor = basemaxrange.pow(fsd.powerConstant) / (basemaxrange + grdnBoost).pow(fsd.powerConstant)
+            (fuel / (boostfactor * fuelmultiplier)).pow(1 / fsd.powerConstant) * massf * boostFactor
+        }
     }
 
-    fun fuelCostForDistance(distance: LY): Tons {
-        val fsd = fsd
-        val booster = fsdBooster
-        val mOpt = fsd.optimalMass
-        val fMax = fsd.maxFuelPerJump
-        val boost = boostFactor
-        val l = fsd.linearConstant
-        val p = fsd.powerConstant
-        val bg: LY = booster?.jumpRangeIncrease ?: 0.0
-        val massK = 1000.0 * totalMass
-        val pInverse = 1.0 / p
-        val bp2MoptmKlpwInv = boost.pow(2) * mOpt * (massK / l).pow(pInverse)
-        return bp2MoptmKlpwInv / (
-                1_000_000.0 * (
-                        boost * mOpt * (
-                                1_000_000.0 * (
-                                        bp2MoptmKlpwInv /
-                                                (bg * totalMass + bp2MoptmKlpwInv)
-                                        ).pow(-p) * totalMass
-                                ) / l.pow(2)
-                        ).pow(pInverse) / distance
-                )
+
+    /**
+     * error condition is -1.0
+     */
+    fun fuelUse1(distance: LY): Tons {
+        val baseMaxRange =
+            (fsd.optimalMass / totalMass) * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
+        val boostFactor = baseMaxRange.pow(fsd.powerConstant) / (baseMaxRange + (fsdBooster?.jumpRangeIncrease
+            ?: 0.0)).pow(fsd.powerConstant)
+        val d = boostFactor * fsd.linearConstant * 0.001 * ((distance / boostFactor) * totalMass / fsd.optimalMass).pow(
+            fsd.powerConstant
+        )
+        return if (d > fsd.maxFuelPerJump) -1.0 else d
+    }
+
+    fun fuelUse(distance: LY) = fuelUse1(distance)
+
+    fun jump(distance: LY): Boolean {
+        val fuel = fuelUse(distance)
+        if (fuel > fuelRemaining) {
+            return false
+        }
+        fuelRemaining -= fuel
+        return true
+    }
+
+    fun refuel(): Ship {
+        fuelRemaining = fuelCapacity
+        return this
+    }
+
+    fun maxJumpRange(remaining: Tons = Double.MAX_VALUE): LY = copy().run {
+        fuelRemaining = min(fuelCapacity, remaining)
+        //loop through jumps until we run out of fuel
+        var range = 0.0
+        do {
+            val jumpRange = jumpRangeForFuel(fuelRemaining)
+            fuelRemaining -= fuelUse(jumpRange)
+            range += jumpRange
+        } while (fuelRemaining > 0.0)
+        range
     }
 }
