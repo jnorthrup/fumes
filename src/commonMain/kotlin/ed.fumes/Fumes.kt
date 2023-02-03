@@ -83,6 +83,7 @@ data class Ship(
 
     /**
 
+     from earthnuker https://gist.github.com/Earthnuker/2cba9446ff4d78ffb3df69c97c25d706
     # Ship Jump calculations
 
     FSD Fuel consumption ([Elite: Dangerous Wiki](https://elite-dangerous.fandom.com/wiki/Frame_Shift_Drive#Hyperspace_Fuel_Equation)):
