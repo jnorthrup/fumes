@@ -1,16 +1,17 @@
-package  ed.fumes.ed.fumes
+package  ed.fumes
 
-import ed.fumes.ed.fumes.Ship
+import ed.fumes.FrameShiftDrive.BaseFSD.Fsd2E
+import ed.fumes.FrameShiftDrive.BaseFSD.Fsd6E
 import kotlin.test.*
 
 class TestShip {
     @Test
     fun testShip1() {
         //   SideWinder ship with no booster
-        val sidey = Ship("SideWinder", 43.2, BaseFSD.fsd2E.fsd.copy(), 2.0, 4.0)
+        val sidey = Ship("SideWinder", 43.2, Fsd2E.fsd.copy(), 2.0, 4.0) // no booster
 
         // anaconda with a 5H booster
-        val anaconda = Ship("Anaconda", 1066.4, BaseFSD.fsd6E.fsd.copy(), 32.0, 114.0, FSDBooster.booster5H)
+        val anaconda = Ship("Anaconda", 1066.4, Fsd6E.fsd.copy(), 32.0, 114.0, FSDBooster.booster5H) // 5H booster
 
         listOf(sidey, anaconda).forEach {
             println(it)
@@ -30,7 +31,6 @@ class TestShip {
             //jump with full fuel empty cargo
             val jumpRangeFull = it.jumpRangeForFuel(it.fuelCapacity)
             println("jump with full fuel empty cargo: $jumpRangeFull LY")
-
 
             //show maxrange with a  copy of the ship
             val maxRange = it.copy().maxJumpRange()
