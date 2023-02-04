@@ -2,6 +2,7 @@ package ed.fumes.ed.fumes
 
 import ed.fumes.ed.fumes.FrameShiftDrive.FSDClass.*
 import ed.fumes.ed.fumes.FrameShiftDrive.FSDRating.*
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -68,6 +69,7 @@ enum class FSDBooster(
 }
 
 
+//get the fuel function
 data class Ship(
     val name: String,
     val unladedMass: Tons,
@@ -86,7 +88,7 @@ data class Ship(
 
     val totalMass: Tons = unladedMass + cargoRemaining + fuelRemaining
 
-    fun jumpRangeForFuel(fuel1: Tons): LY {
+    fun jumpRangeForFuel(fuel1: Tons = fuelRemaining): LY {
         val fuel = min(min(fuel1, fsd.maxFuelPerJump), fuelRemaining)
         val mass = totalMass
         val massf = fsd.optimalMass / mass
@@ -106,10 +108,7 @@ data class Ship(
     }
 
 
-    /**
-     * error condition is -1.0
-     */
-    fun fuelUse1(distance: LY): Tons {
+    fun fuelUse(distance: LY): Tons {
         val baseMaxRange =
             (fsd.optimalMass / totalMass) * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
         val boostFactor = baseMaxRange.pow(fsd.powerConstant) / (baseMaxRange + (fsdBooster?.jumpRangeIncrease
@@ -120,11 +119,9 @@ data class Ship(
         return if (d > fsd.maxFuelPerJump) -1.0 else d
     }
 
-    fun fuelUse(distance: LY) = fuelUse1(distance)
-
     fun jump(distance: LY): Boolean {
         val fuel = fuelUse(distance)
-        if (fuel > fuelRemaining) {
+        if (fuel == -1.0 || fuel > fuelRemaining) {
             return false
         }
         fuelRemaining -= fuel
