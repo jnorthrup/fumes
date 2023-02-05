@@ -15,7 +15,7 @@ data class FrameShiftDrive(
     var optimalMass: Tons,
     var maxFuelPerJump: Tons
 ) {
-    enum class FSDRating(val linearConstant: Double) { A(12.0), B(10.0), C(8.0), D(10.0), E(11.0), }
+    enum class FSDRating(val linearConstant: Double) { E(11.0), D(10.0), C(8.0), B(10.0), A(12.0), }
     enum class FSDClass(val powerConstant: Double) { C2(2.00), C3(2.15), C4(2.30), C5(2.45), C6(2.60), C7(2.75), C8(2.90) }
     enum class BaseFSD(val fsd: FrameShiftDrive) {
         Fsd2E(FrameShiftDrive(C2, E, 48.0, 0.6)),
