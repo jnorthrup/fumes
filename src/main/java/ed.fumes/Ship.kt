@@ -156,7 +156,7 @@ data class Ship(
         val fuelGoal = fuelRemaining - fuelReserve
 
 
-        var a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
+        val a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
         var b: Tons = a * .3 //exponentially lower cost per LY
         var dA: LY
         var dB: LY
@@ -180,8 +180,6 @@ data class Ship(
             //return the throttle setting that will give us the desired range
             solution = (goalDistance - intercept) / slope
 
-            //update a and b
-            a = b
             b = solution * .3
         } while (b > solution)
 
