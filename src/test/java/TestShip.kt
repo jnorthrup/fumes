@@ -1,10 +1,9 @@
 package  ed.fumes
 
-import ed.fumes.ed.fumes.Ship
-import ed.fumes.ed.fumes.Ship.FSDBooster.booster5H
-import ed.fumes.ed.fumes.Ship.FrameShiftDrive.BaseFSD
-import ed.fumes.ed.fumes.Ship.FrameShiftDrive.BaseFSD.fsd2E
-import ed.fumes.ed.fumes.Ship.FrameShiftDrive.BaseFSD.fsd6E
+import ed.fumes.Ship.FSDBooster.booster5H
+import ed.fumes.Ship.FrameShiftDrive.BaseFSD
+import ed.fumes.Ship.FrameShiftDrive.BaseFSD.fsd2E
+import ed.fumes.Ship.FrameShiftDrive.BaseFSD.fsd6E
 import org.junit.Test
 
 class TestShip {
