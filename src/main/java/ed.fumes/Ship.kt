@@ -1,5 +1,7 @@
 package ed.fumes
 
+import ed.fumes.Ship.FrameShiftDrive.FSDClass.*
+import ed.fumes.Ship.FrameShiftDrive.FSDRating.*
 import ed.fumes.ed.fumes.LY
 import ed.fumes.ed.fumes.Tons
 import kotlin.math.min
