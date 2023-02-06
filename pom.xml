@@ -14,7 +14,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>18</maven.compiler.source>
     <maven.compiler.target>18</maven.compiler.target>
-      <kotlin.version>1.8.10</kotlin.version>
+      <kotlin.version>1.8.0</kotlin.version>
   </properties>
 
   <dependencies>
@@ -34,6 +34,11 @@
           <artifactId>kotlin-test</artifactId>
           <version>${kotlin.version}</version>
           <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>org.bereft</groupId>
+          <artifactId>trikeshed-jvm</artifactId>
+          <version>1.0</version>
       </dependency>
   </dependencies>
 
@@ -103,7 +108,7 @@
                   </execution>
               </executions>
               <configuration>
-                  <jvmTarget>1.8</jvmTarget>
+                  <jvmTarget>18</jvmTarget>
               </configuration>
           </plugin>
       </plugins>

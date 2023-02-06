@@ -6,8 +6,8 @@ package ed.fumes
  * */
 
 
+import ed.fumes.ed.fumes.LY
 import kotlin.math.*
-
 
 /**a 4-tuple of ID,x,y,z coordinates*/
 data class PointRecord3d(
