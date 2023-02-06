@@ -5,11 +5,6 @@ package ed.fumes
  *  r-star-tree biased to provide spherical point distances with 4-tuple ID,x,y,z coordinates
  * */
 
-import borg.trikeshed.common.collections._l
-import borg.trikeshed.lib.Join
-import borg.trikeshed.lib.first
-import borg.trikeshed.lib.j
-import borg.trikeshed.lib.second
 
 import kotlin.math.*
 
@@ -26,4 +21,5 @@ data class PointRecord3d(
         val dy = y - other.y
         val dz = z - other.z
         return sqrt(dx * dx + dy * dy + dz * dz)
-    }}
+    }
+}

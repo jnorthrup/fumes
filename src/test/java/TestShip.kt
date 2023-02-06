@@ -1,9 +1,7 @@
 package  ed.fumes
 
 import ed.fumes.FrameShiftDrive.BaseFSD.Fsd5A
-import ed.fumes.FrameShiftDrive.FSDClass.*
-import ed.fumes.FrameShiftDrive.FSDRating.*
-import kotlin.test.*
+import org.junit.Test
 
 class TestShip {
     @Test
@@ -12,7 +10,8 @@ class TestShip {
         val sidey = Ship("SideWinder", 43.2, FrameShiftDrive.BaseFSD.Fsd2E.fsd, 2.0, 4.0) // no booster
 
         // anaconda with a 5H booster
-        val anaconda = Ship("Anaconda", 1066.4,  FrameShiftDrive.BaseFSD.Fsd6E.fsd, 32.0, 114.0, FSDBooster.booster5H) // 5H booster
+        val anaconda =
+            Ship("Anaconda", 1066.4, FrameShiftDrive.BaseFSD.Fsd6E.fsd, 32.0, 114.0, FSDBooster.booster5H) // 5H booster
 
         listOf(sidey, anaconda).forEach {
             println(it)
@@ -40,12 +39,12 @@ class TestShip {
     }
 
     @Test
-    fun testCruiseControl(){
+    fun testCruiseControl() {
         val ship = Ship("test", 100.0, Fsd5A.fsd.copy(), 20.0, 0.0)
         val start = PointRecord3d(1.toULong(), 0.0, 0.0, 0.0)
         val target = PointRecord3d(2.toULong(), 100.0, 100.0, 100.0)
         val throttle = ship.cruiseControl(start, target)
-        println("ship: "+ship)
-        println("throttle for target "+throttle)
+        println("ship: $ship")
+        println("throttle for target $throttle")
     }
 }
