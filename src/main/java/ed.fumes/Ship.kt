@@ -158,17 +158,18 @@ data class Ship(
 
         val a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
         var b: Tons = a * .3 //exponentially lower cost per LY
-        var dA: LY
+        val dA: LY
         var dB: LY
         var slope: Double
         var intercept: Double
         var solution: Tons
 
+        val (dA1, _) = maxJumpRange(fuelGoal, a)
+        dA = dA1
+
         do {
             //dA,dB,slope are the results of the maxRange function for the two throttle settings
-            val (dA1, _) = maxJumpRange(fuelGoal, a)
             val (dB1, _) = maxJumpRange(fuelGoal, b)
-            dA = dA1
             dB = dB1
 
             //determine the gradient of the line between the two points
