@@ -154,37 +154,26 @@ data class Ship(
     ): Tons {
         val goalDistance = start.distanceTo(target)
         val fuelGoal = fuelRemaining - fuelReserve
-
-
         val a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
         var b: Tons = a * .3 //exponentially lower cost per LY
-        val dA: LY
-        var dB: LY
-        var slope: Double
-        var intercept: Double
-        var solution: Tons
-
-        val (dA1, _) = maxJumpRange(fuelGoal, a)
-        dA = dA1
-
+        val (aRange, _) = maxJumpRange(fuelGoal, a)
         do {
-            //dA,dB,slope are the results of the maxRange function for the two throttle settings
-            val (dB1, _) = maxJumpRange(fuelGoal, b)
-            dB = dB1
+            val (bRange, _) = maxJumpRange(fuelGoal, b)
 
-            //determine the gradient of the line between the two points
-            slope = (dA - dB) / (a - b)
+              //determine the gradient of the line between the two points
 
-            //determine the intercept of the line between the two points
-            intercept = dA - slope * a  //dA = slope * a + intercept
+            //da,db,slope,intercept,solution
+            val da:LY = aRange - bRange
+            val db:Tons = a - b
+            val slope = da / db
+            val intercept = aRange - slope * a
+            val solution = (goalDistance - intercept) / slope
 
-            //return the throttle setting that will give us the desired range
-            solution = (goalDistance - intercept) / slope
 
-            b = solution * .3
-        } while (b > solution)
+            if (b > solution) b = solution * .3
+            else return solution
+        } while (true)
 
-        return solution
 
         /**
          * unit test example:
