@@ -24,7 +24,12 @@ data class Ship(
         var maxFuelPerJump: Tons
     ) {
         enum class FSDRating(val linearConstant: Double) { A(12.0), B(10.0), C(8.0), D(10.0), E(11.0), }
-        enum class FSDClass(val powerConstant: Double) { C2(2.00), C3(2.15), C4(2.30), C5(2.45), C6(2.60), C7(2.75), C8(2.90) }
+        enum class FSDClass(val powerConstant: Double) {
+            C2(2.00), C3(2.15), C4(2.30), C5(2.45), C6(2.60), C7(2.75), C8(
+                2.90
+            )
+        }
+
         enum class BaseFSD(val fsd: FrameShiftDrive) {
             fsd2E(FrameShiftDrive(C2, E, 48.0, 0.6)),
             fsd2D(FrameShiftDrive(C2, D, 54.0, 0.6)),
@@ -57,10 +62,12 @@ data class Ship(
             fsd7B(FrameShiftDrive(C7, B, 2250.0, 10.6)),
             fsd7A(FrameShiftDrive(C7, A, 2700.0, 12.8)),
         }
+
         var boostFactor = 1.0
         val linearConstant: Double get() = rating.linearConstant
         val powerConstant: Double get() = fsdClass.powerConstant
     }
+
     enum class FSDBooster(
         /** jump range increase in LY */
         val jumpRangeIncrease: LY
@@ -71,6 +78,7 @@ data class Ship(
         booster4H(9.25),
         booster5H(10.50),
     }
+
     var boostFactor: Double
         get() = fsd.boostFactor
         set(value) {
@@ -101,12 +109,12 @@ data class Ship(
 
     fun fuelUse(distance: LY): Double? {
         val baseMaxRange =
-                (fsd.optimalMass / totalMass) * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
+            (fsd.optimalMass / totalMass) * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
         val boostFactor = baseMaxRange.pow(fsd.powerConstant) / (baseMaxRange + (fsdBooster?.jumpRangeIncrease
-                ?: 0.0)).pow(fsd.powerConstant)
+            ?: 0.0)).pow(fsd.powerConstant)
         val d = boostFactor * fsd.linearConstant * 0.001 * ((distance / boostFactor) * totalMass / fsd.optimalMass).pow(
-                fsd.powerConstant
-            )
+            fsd.powerConstant
+        )
         return if (d > fsd.maxFuelPerJump) null else d
     }
 
@@ -119,7 +127,7 @@ data class Ship(
         var range = 0.0
         var hops = 0
         do {
-            val charge= minOf(fuelRemaining, throttle,fsd.maxFuelPerJump)
+            val charge = minOf(fuelRemaining, throttle, fsd.maxFuelPerJump)
             val jumpRange = jumpRangeForFuel(charge)
             assert(jumpRange > 0.0) { "jumpRange must be > 0.0" }
             fuelRemaining -= charge
@@ -147,23 +155,37 @@ data class Ship(
         val goalDistance = start.distanceTo(target)
         val fuelGoal = fuelRemaining - fuelReserve
 
-        //a,b are two throttle settings that we will sample the maxRange function with to
-        val a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
-        val b: Tons = a * .3 //exponentially lower cost per LY
 
-        //dA,dB,slope are the results of the maxRange function for the two throttle settings
-        val (dA, _) = maxJumpRange(fuelGoal, a)
-        val (dB, _) = maxJumpRange(fuelGoal, b)
+        var a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
+        var b: Tons = a * .3 //exponentially lower cost per LY
+        var dA: LY
+        var dB: LY
+        var slope: Double
+        var intercept: Double
+        var solution: Tons
 
-        //determine the gradient of the line between the two points
-        val slope = (dA - dB) / (a - b)
+        do {
+            //dA,dB,slope are the results of the maxRange function for the two throttle settings
+            val (dA1, _) = maxJumpRange(fuelGoal, a)
+            val (dB1, _) = maxJumpRange(fuelGoal, b)
+            dA = dA1
+            dB = dB1
 
-        //determine the intercept of the line between the two points
-        val intercept = dA - slope * a  //dA = slope * a + intercept
+            //determine the gradient of the line between the two points
+            slope = (dA - dB) / (a - b)
 
+            //determine the intercept of the line between the two points
+            intercept = dA - slope * a  //dA = slope * a + intercept
 
-        //return the throttle setting that will give us the desired range
-        return (goalDistance - intercept) / slope
+            //return the throttle setting that will give us the desired range
+            solution = (goalDistance - intercept) / slope
+
+            //update a and b
+            a = b
+            b = solution * .3
+        } while (b > solution)
+
+        return solution
 
         /**
          * unit test example:
