@@ -7,7 +7,6 @@ package ed.fumes
 
 
 import borg.trikeshed.lib.Series
-import ed.fumes.ed.fumes.LY
 import kotlin.io.path.createTempDirectory
 import kotlin.math.*
 
@@ -32,16 +31,16 @@ data class PointRecord3d(
      */
 }
 fun circuitHunt(ship:Ship, start: PointRecord3d, target: PointRecord3d, fanout:Int=5): List<PointRecord3d> {
-    var throttle = ship.cruiseControl(start, target)
+    val throttle = ship.cruiseControl(start, target)
 
-    var throttleDistance = ship.jumpRangeForFuel(throttle)
+    val throttleDistance = ship.jumpRangeForFuel(throttle)
 
     // create a sphere boundary function which is the distance of the (throttleDistance*fanout radius) around the
     // startpoint, translated 1/3 radius toward the target
     val sphereBoundary = fun(p: PointRecord3d): Boolean {
-        val dx = x - p.x
-        val dy = y - p.y
-        val dz = z - p.z
+        val dx =start.x - p.x
+        val dy =start.y - p.y
+        val dz =start.z - p.z
         val distance = sqrt(dx * dx + dy * dy + dz * dz)
         return distance < throttleDistance * fanout
     }

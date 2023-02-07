@@ -6,6 +6,7 @@ import ed.fumes.Ship.FrameShiftDrive.BaseFSD.fsd2E
 import ed.fumes.Ship.FrameShiftDrive.BaseFSD.fsd6E
 import org.junit.Test
 
+
 class TestShip {
     @Test
     fun testShip1() {
@@ -44,10 +45,19 @@ class TestShip {
     @Test
     fun testCruiseControl() {
         val ship = Ship("test", 100.0, BaseFSD.fsd5A.fsd.copy(), 20.0, 0.0)
-        val start = PointRecord3d(1.toULong(), 0.0, 0.0, 0.0)
-        val target = PointRecord3d(2.toULong(), 100.0, 100.0, 100.0)
-        val throttle = ship.cruiseControl(start, target)
-        println("ship: $ship")
-        println("throttle for target $throttle")
+        val start = PointRecord3d(1.toULong(), name = "Sol", 0.0, 0.0, 0.0)
+        var target = PointRecord3d(2.toULong(), name = "LAWD100", 100.0, 100.0, 100.0)
+        var throttle = ship.cruiseControl(start, target)
+        println("ship: $ship\ntarget: $target")
+        println("distance to target ${start.distanceTo(target)} throttle for target $throttle")
+
+        target = PointRecord3d(2.toULong(), name = "LAWD1000", 1000.0, 100.0, 100.0)
+        throttle = ship.cruiseControl(start, target)
+        println("ship: $ship\ntarget: $target")
+        println("distance to target ${start.distanceTo(target)} throttle for target $throttle")
     }
 }
+
+
+
+

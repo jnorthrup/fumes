@@ -2,10 +2,11 @@ package ed.fumes
 
 import ed.fumes.Ship.FrameShiftDrive.FSDClass.*
 import ed.fumes.Ship.FrameShiftDrive.FSDRating.*
-import ed.fumes.ed.fumes.LY
-import ed.fumes.ed.fumes.Tons
 import kotlin.math.min
 import kotlin.math.pow
+
+typealias Tons = Double
+typealias LY = Double
 
 data class Ship(
     val name: String,
@@ -20,14 +21,12 @@ data class Ship(
     data class FrameShiftDrive(
         val fsdClass: FSDClass,
         val rating: FSDRating,
-        var optimalMass: Tons,
+        var optimizedMass: Tons,
         var maxFuelPerJump: Tons
     ) {
         enum class FSDRating(val linearConstant: Double) { A(12.0), B(10.0), C(8.0), D(10.0), E(11.0), }
         enum class FSDClass(val powerConstant: Double) {
-            C2(2.00), C3(2.15), C4(2.30), C5(2.45), C6(2.60), C7(2.75), C8(
-                2.90
-            )
+            C2(2.00), C3(2.15), C4(2.30), C5(2.45), C6(2.60), C7(2.75)
         }
 
         enum class BaseFSD(val fsd: FrameShiftDrive) {
@@ -90,7 +89,7 @@ data class Ship(
     fun jumpRangeForFuel(fuel1: Tons): LY {
         val charge: Tons = minOf(fuel1, fsd.maxFuelPerJump, fuelRemaining)
         val mass = totalMass
-        val massf = fsd.optimalMass / mass
+        val massf = fsd.optimizedMass / mass
         val fuelmultiplier = fsd.linearConstant * 0.001
         val grdnBoost: LY = fsdBooster?.jumpRangeIncrease ?: 0.0
 
@@ -100,7 +99,7 @@ data class Ship(
             (basev + grdnBoost) * boostFactor
         } else {
             val basemaxrange: LY =
-                fsd.optimalMass / mass * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
+                fsd.optimizedMass / mass * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
             val boostfactor = basemaxrange.pow(fsd.powerConstant) / (basemaxrange + grdnBoost).pow(fsd.powerConstant)
             (charge / (boostfactor * fuelmultiplier)).pow(1 / fsd.powerConstant) * massf * boostFactor
         }
@@ -109,12 +108,13 @@ data class Ship(
 
     fun fuelUse(distance: LY): Double? {
         val baseMaxRange =
-            (fsd.optimalMass / totalMass) * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
+            (fsd.optimizedMass / totalMass) * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
         val boostFactor = baseMaxRange.pow(fsd.powerConstant) / (baseMaxRange + (fsdBooster?.jumpRangeIncrease
             ?: 0.0)).pow(fsd.powerConstant)
-        val d = boostFactor * fsd.linearConstant * 0.001 * ((distance / boostFactor) * totalMass / fsd.optimalMass).pow(
-            fsd.powerConstant
-        )
+        val d =
+            boostFactor * fsd.linearConstant * 0.001 * ((distance / boostFactor) * totalMass / fsd.optimizedMass).pow(
+                fsd.powerConstant
+            )
         return if (d > fsd.maxFuelPerJump) null else d
     }
 
@@ -137,10 +137,13 @@ data class Ship(
         range to hops
     }
 
+
     /**
     we use the maxJumpRange function to simulate a series of jumps to account for distance and mass reduction over
     multiple hops to dial in the logarithmic fuel and linear mass-discounted jump progress
     when throttle goes down weight reduction is lower per hop but the distance log(x) higher
+
+    we must arrive at the exact distance using the exact amount of fuel alloted.
 
     @param PointRecord3d start the starting point
     @param PointRecord3d target the target point
@@ -152,40 +155,37 @@ data class Ship(
         target: PointRecord3d,
         fuelReserve: Tons = fuelCapacity * .03,// reserve 3% of fuel for maneuvering
     ): Tons {
-        val goalDistance = start.distanceTo(target)
-        val fuelGoal = fuelRemaining - fuelReserve
-        val a: Tons = min(fsd.maxFuelPerJump, fuelRemaining) //always max throttle available
-        var b: Tons = a * .3 //exponentially lower cost per LY
-        val (aRange, _) = maxJumpRange(fuelGoal, a)
-        do {
-            val (bRange, _) = maxJumpRange(fuelGoal, b)
+        val goalRange: LY = start.distanceTo(target)
+        val fuelGoal: Tons = fuelRemaining - fuelReserve
 
-              //determine the gradient of the line between the two points
+        val m = fsd.maxFuelPerJump  // known starting point worst range
 
-            //da,db,slope,intercept,solution
-            val da:LY = aRange - bRange
-            val db:Tons = a - b
-            val slope = da / db
-            val intercept = aRange - slope * a
-            val solution = (goalDistance - intercept) / slope
+        val x=listOf(.3 , .7 , 1.0)
+        val yCurve: List<LY> =x.map { maxJumpRange(fuelGoal, m * it).first }
+
+        val y = yCurve.map { it - goalRange }.map { it * it }
+
+        val xCurve = x.map { m * it }.map { it * it }
+
+        val xSum = xCurve.sum()
+        val ySum = y.sum()
+        val xySum = xCurve.zip(y).map { (x, y) -> x * y }.sum()
+        val xxSum = xCurve.map { it * it }.sum()
+
+        val slope = (xySum - xSum * ySum / x.size) / (xxSum - xSum * xSum / x.size)
+        val intercept = (ySum - slope * xSum) / x.size
+
+        //y = mx + b
+        //m = slope
+        //b = intercept
+
+        val throttle = (-intercept / slope).pow(.5)
+
+        return throttle
 
 
-            if (b > solution) b = solution * .3
-            else return solution
-        } while (true)
 
 
-        /**
-         * unit test example:
-         *
-         * val ship = Ship("test", 100.0, FrameShiftDrive.BaseFSD.Fsd5A.fsd.copy(),  fuelCapacity = 20.0, cargoCapacity = 0.0 )
-         * val start = PointRecord3d(0.0, 0.0, 0.0)
-         * val target = PointRecord3d(100.0, 0.0, 0.0)
-         * val throttle = ship.cruiseControl(start, target)
-         * println(throttle)
-         *
-         * output:
-         */
     }
 
     fun jumpTo(target: PointRecord3d, fuelReserve: Tons = fuelCapacity * .03): Boolean {

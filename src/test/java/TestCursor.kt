@@ -33,8 +33,10 @@ class TestCursor {
         //create a cursor from the list
         val colnames=s_[ "id", "name", "x", "y", "z"]
         val types=s_[IOMemento.IoLong, IOMemento.IoString, IOMemento.IoFloat, IOMemento.IoFloat, IOMemento.IoFloat]
-        val cursor = Cursor.fromList(stars, colnames, types)
-
+//        val cursor = Cursor.fromList(stars, colnames, types)
+//        cursor.print()
+    }
+}
 
 
 
