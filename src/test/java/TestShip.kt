@@ -48,12 +48,18 @@ class TestShip {
         val start = PointRecord3d(1.toULong(), name = "Sol", 0.0, 0.0, 0.0)
         var target = PointRecord3d(2.toULong(), name = "LAWD100", 100.0, 100.0, 100.0)
         var throttle = ship.cruiseControl(start, target)
+
+        //show ship max jumprange
+
+        ship.maxJumpRange().let { println("ship max jump range: $it") }
+
+        //show target calculated jumprange
         println("ship: $ship\ntarget: $target")
         println("distance to target ${start.distanceTo(target)} throttle for target $throttle")
 
         target = PointRecord3d(2.toULong(), name = "LAWD1000", 1000.0, 100.0, 100.0)
         throttle = ship.cruiseControl(start, target)
-        println("ship: $ship\ntarget: $target")
+
         println("distance to target ${start.distanceTo(target)} throttle for target $throttle")
     }
 }

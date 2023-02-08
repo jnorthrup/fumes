@@ -2,8 +2,8 @@ package ed.fumes
 
 import ed.fumes.Ship.FrameShiftDrive.FSDClass.*
 import ed.fumes.Ship.FrameShiftDrive.FSDRating.*
-import kotlin.math.min
-import kotlin.math.pow
+import ed.fumes.Ship.FrameShiftDrive.FSDRating.E
+import kotlin.math.*
 
 typealias Tons = Double
 typealias LY = Double
@@ -121,19 +121,23 @@ data class Ship(
     /**
      * returns the max jump range and number of hops
      */
-    fun maxJumpRange(remaining: Tons = Double.MAX_VALUE, throttle: Tons = remaining): Pair<LY, Int> = copy().run {
+    fun maxJumpRange(
+        remaining: Tons = Double.MAX_VALUE,
+        throttle: Tons = remaining,
+        reserveFuel: Tons = 0.0
+    ): Pair<LY, Int> = copy().run {
         fuelRemaining = min(fuelCapacity, remaining)
         //loop through jumps until we run out of fuel
         var range = 0.0
         var hops = 0
         do {
-            val charge = minOf(fuelRemaining, throttle, fsd.maxFuelPerJump)
+            val charge = minOf(fuelRemaining - reserveFuel, throttle, fsd.maxFuelPerJump)
             val jumpRange = jumpRangeForFuel(charge)
             assert(jumpRange > 0.0) { "jumpRange must be > 0.0" }
             fuelRemaining -= charge
             range += jumpRange
             hops++
-        } while (fuelRemaining > 0.0)
+        } while (fuelRemaining > reserveFuel)
         range to hops
     }
 
@@ -158,32 +162,13 @@ data class Ship(
         val goalRange: LY = start.distanceTo(target)
         val fuelGoal: Tons = fuelRemaining - fuelReserve
 
-        val m = fsd.maxFuelPerJump  // known starting point worst range
-
-        val x=listOf(.3 , .7 , 1.0)
-        val yCurve: List<LY> =x.map { maxJumpRange(fuelGoal, m * it).first }
-
-        val y = yCurve.map { it - goalRange }.map { it * it }
-
-        val xCurve = x.map { m * it }.map { it * it }
-
-        val xSum = xCurve.sum()
-        val ySum = y.sum()
-        val xySum = xCurve.zip(y).map { (x, y) -> x * y }.sum()
-        val xxSum = xCurve.map { it * it }.sum()
-
-        val slope = (xySum - xSum * ySum / x.size) / (xxSum - xSum * xSum / x.size)
-        val intercept = (ySum - slope * xSum) / x.size
-
-        //y = mx + b
-        //m = slope
-        //b = intercept
-
-        val throttle = (-intercept / slope).pow(.5)
-
-        return throttle
 
 
+        //throttle is tons of fuel per jump
+        // the x axis represents throttle  fsd.maxFuelPerJump-(fsd.maxFuelPerJump * x) where x=0..1
+        // the y axis represents distance curve at x=throttle
+
+        //find slope and binary search for the throttle that will get us to the target
 
 
     }
