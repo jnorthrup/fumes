@@ -2,17 +2,15 @@ package ed.fumes
 
 import ed.fumes.Ship.FrameShiftDrive.FSDClass.*
 import ed.fumes.Ship.FrameShiftDrive.FSDRating.*
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
-
 
 typealias Tons = Double
 typealias LY = Double
 
 data class Ship(
     val name: String,
-    val unladedMass: Tons,
+    val unladenMass: Tons,
     val fsd: FrameShiftDrive,
     val fuelCapacity: Tons,
     val cargoCapacity: Tons,
@@ -67,6 +65,13 @@ data class Ship(
         var boostFactor = 1.0
         val linearConstant: Double get() = rating.linearConstant
         val powerConstant: Double get() = fsdClass.powerConstant
+
+        companion object {
+            fun fromClassAndRating(clas: Int, rating: Char): FrameShiftDrive {
+                val name = "fsd${clas}${rating.uppercaseChar()}"
+                return BaseFSD.valueOf(name).fsd
+            }
+        }
     }
 
     enum class FSDBooster(
@@ -77,7 +82,15 @@ data class Ship(
         booster2H(6.00),
         booster3H(7.75),
         booster4H(9.25),
-        booster5H(10.50),
+        booster5H(10.50), ;
+
+        companion object {
+            fun fromClass(clas: Int): FSDBooster {
+                "booster${clas}H".let { name ->
+                    return FSDBooster.valueOf(name)
+                }
+            }
+        }
     }
 
     var boostFactor: Double
@@ -86,7 +99,7 @@ data class Ship(
             fsd.boostFactor = value
         }
 
-    val totalMass: Tons = unladedMass + cargoRemaining + fuelRemaining
+    val totalMass: Tons = unladenMass + cargoRemaining + fuelRemaining
 
     fun jumpRangeForFuel(fuel1: Tons): LY {
         val charge: Tons = minOf(fuel1, fsd.maxFuelPerJump, fuelRemaining)
@@ -102,7 +115,8 @@ data class Ship(
         } else {
             val basemaxrange: LY =
                 fsd.optimizedMass / mass * (fsd.maxFuelPerJump * 1000 / fsd.linearConstant).pow(1 / fsd.powerConstant)
-            val boostfactor = basemaxrange.pow(fsd.powerConstant) / (basemaxrange + grdnBoost).pow(fsd.powerConstant)
+            val boostfactor =
+                basemaxrange.pow(fsd.powerConstant) / (basemaxrange + grdnBoost).pow(fsd.powerConstant)
             (charge / (boostfactor * fuelmultiplier)).pow(1 / fsd.powerConstant) * massf * boostFactor
         }
     }
@@ -117,7 +131,7 @@ data class Ship(
             boostFactor * fsd.linearConstant * 0.001 * ((distance / boostFactor) * totalMass / fsd.optimizedMass).pow(
                 fsd.powerConstant
             )
-        //require(d <= fsd.maxFuelPerJump) { "where maxFuelPerJump is ${fsd.maxFuelPerJump} we attempted to use $d Tons" }
+        assert(d <= fsd.maxFuelPerJump) { "where maxFuelPerJump is ${fsd.maxFuelPerJump} we attempted to use $d Tons" }
         return d
     }
 
@@ -144,66 +158,59 @@ data class Ship(
         range to hops
     }
 
-    fun jumpTo(target: PointRecord3d, fuelReserve: Tons = fuelCapacity * .03): Boolean {
-        val goalDistance = target.distanceTo(target)
-        val fuelGoal = fuelRemaining - fuelReserve
-        val throttle = cruiseControl(target, target, fuelReserve)
-        val (range, hops) = maxJumpRange(fuelGoal, throttle)
+    fun jumpTo(target: PointRecord3d, fuelReserve: Tons = fuelCapacity * .0): Boolean {
+        val goalDistance: LY = target.distanceTo(target)
+        val fuelGoal: Double = fuelRemaining - fuelReserve
+        val throttle: Triple<Tons, Double, Int> = cruiseControl(target, target, fuelReserve)
+        val (range: LY, hops: Int) = maxJumpRange(fuelGoal, throttle.first)
         return range >= goalDistance
     }
 
-    /**
 
-    find a 3 point fuel curve starting with (0Tons,0LY) (fsd.maxFuelPerJump/2.0,range) (fsd.maxFuelPerJump,range)
-
-     */
     fun cruiseControl(
         start: PointRecord3d,
         target: PointRecord3d,
         /** serves as the  fudge factor for distance and also the default minimum fuel headroom fraction*/
         tolerance: LY = 0.03,
-        /** subtracted up front*/
+        /** reserve subtracted from capacity up front*/
         fuelReserve: Tons = fuelCapacity * tolerance// reserve 3% of fuel for maneuvering
-    ): Tons {
+    ): Triple<Tons, Double, Int> {
         val goalRange: LY = start.distanceTo(target)
         val fuelGoal: Tons = fuelRemaining - fuelReserve
-        val minFuel = fuelGoal - (fuelGoal * tolerance)
+        val minFuel: Tons = fuelGoal - (fuelGoal * tolerance)
 
         val maxFuelPerJump = fsd.maxFuelPerJump
         var curThrottle: Tons = maxFuelPerJump
-        var maxHop: LY = jumpRangeForFuel(curThrottle)
+
         var counter = 1
+        var hops: Double
         //we need to make multiple jumps
         do {
-            require(curThrottle<=maxFuelPerJump){"curThrottle must be <= maxFuelPerJump but max is $maxFuelPerJump and curThrottle is $curThrottle" }
-            /**
-            this accounts for totalMass mass alpha hop which will
-            be affected by fuel depletion weight adjustment after the jump
-             */
+            require(curThrottle <= maxFuelPerJump) { "curThrottle must be <= maxFuelPerJump but max is $maxFuelPerJump and curThrottle is $curThrottle" }
+            /** this accounts for totalMass mass alpha hop which will be affected by fuel depletion weight adjustment after the jump */
             val curHopDistance = jumpRangeForFuel(curThrottle)
 
             //divide the goal range by the curHopDistance to get the number of hops curThrottle produces
-            val hops = goalRange / curHopDistance
+            hops = goalRange / curHopDistance
 
             //obtain fuel*hops
             val proposedFuel: Tons = fuelUse(curHopDistance) * hops
 
-            if (hops <= 1.0) return curThrottle
+            if (hops <= 1.0) break
 
-            if (proposedFuel in minFuel..fuelGoal) {
-                //we are within tolerance
-                return curThrottle
-            }
+            if (proposedFuel in minFuel..fuelGoal) break //we are within tolerance
+
             //we need to adjust the throttle
-            curThrottle =if (proposedFuel > fuelGoal) (curThrottle) / 2.0
-            // increase the  curHopDistance by the divisor of the fuelGoal and proposedFuel to get the new throttle
-            else min (
-                (curThrottle+maxFuelPerJump)/2.0,
-                curThrottle * fuelGoal / proposedFuel
-            )
-
+            curThrottle = if (proposedFuel > fuelGoal) (curThrottle) / 2.0
+            else {
+                // increase the  curHopDistance by the divisor of the
+                // fuelGoal and proposedFuel to get the new throttle
+                val b = curThrottle * fuelGoal / proposedFuel
+                if (b <= maxFuelPerJump) b
+                else arrayOf(curThrottle, maxFuelPerJump).average()
+            }
             counter++
-        } while (counter < 10000)
-        return Double.POSITIVE_INFINITY
+        } while (counter < 1000)
+        return Triple(curThrottle, hops, counter)
     }
 }

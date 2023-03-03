@@ -76,11 +76,15 @@ class TestShip {        //   SideWinder ship with no booster
                 val distanceTo = target.distanceTo(startPointerInfo)
                 println("for the target: $target at distance: $distanceTo LY")
 
-
                 //showCruiseControl
                 val cruiseControl = ship.cruiseControl(startPointerInfo, target, .03)
-                val jumpRangeForFuel = ship.jumpRangeForFuel(cruiseControl)
-                println("cruiseControl throttle is: $cruiseControl and max hop distance is $jumpRangeForFuel LY giving estimated hops of ${(distanceTo / jumpRangeForFuel).toInt()}")
+                val jumpRangeForFuel = ship.jumpRangeForFuel(cruiseControl.first)
+                println(""" "pessimistic" cruiseControl throttle is: $cruiseControl and max hop distance is $jumpRangeForFuel LY giving estimated hops of ${(distanceTo / jumpRangeForFuel).toInt()}""")
+                val throttle = cruiseControl.first
+                val mrff=ship.maxJumpRange(ship.fuelCapacity, throttle,.03)
+                println("max range w/fuel depletion per cruise estimate: $mrff LY using cruiseControl throttle of: ${cruiseControl.first} ")
+                logDebug { "distance check:  ${jumpRangeForFuel * cruiseControl.second}" }
+
             }
         }
     }

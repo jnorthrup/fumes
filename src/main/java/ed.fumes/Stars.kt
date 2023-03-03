@@ -33,7 +33,7 @@ data class PointRecord3d(
 fun circuitHunt(ship:Ship, start: PointRecord3d, target: PointRecord3d, fanout:Int=5): List<PointRecord3d> {
     val throttle = ship.cruiseControl(start, target)
 
-    val throttleDistance = ship.jumpRangeForFuel(throttle)
+    val throttleDistance = ship.jumpRangeForFuel(throttle.first)
 
     // create a sphere boundary function which is the distance of the (throttleDistance*fanout radius) around the
     // startpoint, translated 1/3 radius toward the target
