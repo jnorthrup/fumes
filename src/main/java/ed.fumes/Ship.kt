@@ -214,3 +214,4 @@ data class Ship(
         return Triple(curThrottle, hops, counter)
     }
 }
+

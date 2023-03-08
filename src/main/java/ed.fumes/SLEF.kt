@@ -2721,9 +2721,7 @@ SLEF json schema from example:
 }
 ```
 
-below:
-
-kotlin pojo data class tracking SLEF Data, FrameShiftDrive, and GuardianFSDBooster from the schema elements
+below: kotlin pojo data class tracking SLEF Data, FrameShiftDrive, and GuardianFSDBooster from the schema elements
 */
 
 @Serializable
