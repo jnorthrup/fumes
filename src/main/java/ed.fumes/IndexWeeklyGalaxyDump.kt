@@ -1,87 +1,23 @@
 package ed.fumes
 
 import borg.trikeshed.common.Files.streamLines
+import borg.trikeshed.common.collections._a
 import borg.trikeshed.common.collections._l
+import borg.trikeshed.common.collections._s
 import borg.trikeshed.common.collections.s_
-import borg.trikeshed.cursor.Cursor
-import borg.trikeshed.cursor.RowVec
+import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.IsamDataFile
 import borg.trikeshed.isam.RecordMeta
 import borg.trikeshed.isam.meta.IOMemento
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
+import ed.fumes.IndexWeeklyGalaxyDump.EdEnumCache
+import ed.fumes.IndexWeeklyGalaxyDump.meta
 import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
-
-
-enum class EdSystem(val typeMemento: IOMemento, vararg pathKey: Any) {
-    Id64(IoLong, 0),
-    Name(IoString, 1),
-    X(IoDouble, 2, 0),
-    Y(IoDouble, 2, 1),
-    Z(IoDouble, 2, 2),
-    ;
-
-    val path: JsPath = (pathKey).toList().toJsPath
-
-    companion object {
-        val cache = EdSystem.values()
-    }
-}
-
-val EdEnumCache = EdSystem.values()
-val meta: Series2<String, IOMemento> = combine(s_["seek" j IoLong], EdEnumCache α { it.name j it.typeMemento })
-val readLogger = FibonacciReporter(noun = "systems")
-val begin: Long by lazy { System.currentTimeMillis() }
-
-class SeqCursor(val seq: Sequence<Join<Long, ByteArray>>) : Cursor {
-    override val a: Int
-        get() = TODO()
-    override val b: (Int) -> RowVec
-        get() = TODO()
-}
-
-val SeqCursor.meta: Series2<String, IOMemento>
-    get() = combine(s_["seek" j IoLong], EdEnumCache α { it.name j it.typeMemento })
-
-fun SeqCursor.iterator(): Iterator<RowVec> {
-    val iterator = seq.iterator()
-
-    return object : Iterator<RowVec> {
-        override fun hasNext(): Boolean = iterator.hasNext()
-        val rsize = EdSystem.cache.size + 1
-        override fun next(): RowVec = iterator.next().let {
-            val (offset: Long, line: ByteArray) = it
-            val src = line.decodeToCharSeries()
-            val json: JsElement = JsonParser.index(src, takeFirst = 3)
-
-            rsize j { x: Int ->
-                when (x) {
-                    0 -> offset
-                    else -> {
-                        val ctx = (json j src)
-                        ctx[EdSystem.cache[x - 1].path] ?: "null" as Any
-                    }
-                } j { meta[x] as RecordMeta }
-            }
-        }
-    }
-}
-
-fun loadLine(v: Join<Long, Series<Char>>) {
-    val (offset, line) = v
-    val json = JsonParser.index(line, takeFirst = 3)
-    val jsCtx: JsContext = json j line
-    val decode: Series<Any?> = EdSystem.cache α { jsCtx[it.path] }
-    val data = _l[offset] + decode.toList()
-
-    readLogger.report()?.let {
-        val bps = (offset / (System.currentTimeMillis() - begin)) * 1000
-        println("$it total read: ${offset.humanReadableByteCountIEC} @ $bps/s ")
-    }
-}
+import java.util.concurrent.TimeUnit
 
 
 /**
@@ -122,35 +58,92 @@ fun loadLine(v: Join<Long, Series<Char>>) {
  *
  * @see [...](https://www.reddit.com/r/EliteDangerous/comments/hvuwb6/galmap_starnaming_from_id64/)
  */
-internal object IndexWeeklyGalaxyDump1 {
-    @JvmStatic
-    fun main(args: Array<String>) {
-        val DATADIR =  /* current working dir */System.getProperty("user.dir") + "/data"
-        val prefix = args[0]
-        val fname = args[1]
-        //make tempdir in java 
-        val tmpdir: Path? = try {
-            Files.createTempDirectory("fumes")
-        } catch (e: IOException) {
-            throw RuntimeException(e)
+object IndexWeeklyGalaxyDump {
+    enum class EdSystem(val typeMemento: TypeMemento,   vararg  pathKey: Any?) {
+        Seek(IoLong),
+        Id64(IoLong, 0),
+        Name(IoString, 1),
+        X(IoDouble, 2, 0),
+        Y(IoDouble, 2, 1),
+        Z(IoDouble, 2, 2),
+        ;
+
+        val path: JsPath = (pathKey).toList().toJsPath
+
+        companion object {
+            val cache = EdSystem.values()
         }
-        val streamScript = """#!/bin/bash
+    }
+
+    val EdEnumCache = EdSystem.values()
+
+    val varchars = mapOf(EdSystem.Name.name to 64)
+    val meta by lazy {( EdSystem.cache α { (it.name j it.typeMemento) }).debug {
+        println("galaxy coordinates schema: "+it.map (Join<*,*>::pair))
+    }}
+
+
+    }
+
+
+fun main(args: Array<String>) {
+    val DATADIR =  /* current working dir */System.getProperty("user.dir") + "/data"
+
+    val prefix = args.takeIf { it.size > 0 }?.let { args[0] } ?: "https://downloads.spansh.co.uk/"
+    val fname = args.takeIf { it.size > 1 }?.let { args[1] } ?: "galaxy_1day.json.gz"
+    //make tempdir in java
+    val tmpdir: Path? = try {
+        Files.createTempDirectory("fumes").also {
+            print("tempdir created: $it")
+        }
+
+    } catch (e: IOException) {
+        throw RuntimeException(e)
+    }
+    val streamScript = """#!/bin/bash
             echo processing in $tmpdir
             pushd $tmpdir
             #  create 2 random fifos in bash
             mkfifo $tmpdir/fifo1
-            zcat <(curl "$prefix$fname"   ) |tee >(gztool -I ${fname}}.gzi &&mv  ${fname}.gzi ${DATADIR}) fifo1
+            zcat <(curl "$prefix$fname"   ) |tee >(gztool -I ${fname}.gzi &&mv  ${fname}.gzi ${DATADIR}) fifo1
             """.trimIndent().trimIndent()
-        val name = tmpdir.toString() + "/fifo1"
-        val process = ProcessBuilder("/bin/bash", "-c", streamScript).start()
+    val name = tmpdir.toString() + "/fifo1"
+    val process = ProcessBuilder("/bin/bash", "-c", streamScript).start()
 
-        val streamLines: Sequence<Join<Long, ByteArray>> = streamLines(name)
+    val streamLines = streamLines(name)
+    val preOptDepths = _l[0,0,1]
+    val decodeMe = IndexWeeklyGalaxyDump.EdSystem.cache.drop(1)
+    val seqRows =
+        sequence<RowVec> {
+            var readLogger: FibonacciReporter? =null
+            debug { readLogger = FibonacciReporter(noun = "systems") }
+            streamLines.drop(1).forEach { (seek: Long, line: ByteArray): Join<Long, ByteArray> ->
+                val charSeries:Series<Char> =CharSeries( (line).decodeToChars())
+                val sanityCheck: MutableList<Int> = mutableListOf()
+                val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
+                kotlin.assert(preOptDepths.equals(sanityCheck))
+                val theJson = decodeMe α { it ->
+                    val path = it.path
+                    val typeMemento = it.typeMemento
+                    val value = JsonParser.jsPath(jsElement j charSeries, path, true, sanityCheck)
+                    value
+                }
+                val row: RowVec = IndexWeeklyGalaxyDump.EdSystem.cache.size j { x: Int ->
+                    (if (x == 0) seek else theJson[x - 1]) j { IndexWeeklyGalaxyDump.EdSystem.cache[x].run { name j typeMemento } }
+                }
+                yield(row).debug {  readLogger?.report()?.let(::println) }
+            }
+        }
 
-        val curs = SeqCursor(streamLines)
-        IsamDataFile.write(curs, DATADIR + "/SystemIndex.isam")
-        println("done")
-    }
-}
+    val datafilename = DATADIR + "/galaxy_1day.isam"
+            println("writing isam to $datafilename")
 
+            IsamDataFile.append(
+                seqRows.asIterable(),
+                meta, datafilename, IndexWeeklyGalaxyDump.varchars
+            )
+            println("done")
+        process.waitFor(2, TimeUnit.MINUTES)
 
+        }
 
