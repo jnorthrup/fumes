@@ -1,18 +1,12 @@
 package ed.fumes
 
 import borg.trikeshed.common.Files.streamLines
-import borg.trikeshed.common.collections._a
 import borg.trikeshed.common.collections._l
-import borg.trikeshed.common.collections._s
-import borg.trikeshed.common.collections.s_
 import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.IsamDataFile
-import borg.trikeshed.isam.RecordMeta
-import borg.trikeshed.isam.meta.IOMemento
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
-import ed.fumes.IndexWeeklyGalaxyDump.EdEnumCache
 import ed.fumes.IndexWeeklyGalaxyDump.meta
 import java.io.*
 import java.nio.file.Files
@@ -91,6 +85,8 @@ fun main(args: Array<String>) {
 
     val prefix = args.takeIf { it.size > 0 }?.let { args[0] } ?: "https://downloads.spansh.co.uk/"
     val fname = args.takeIf { it.size > 1 }?.let { args[1] } ?: "galaxy_1day.json.gz"
+
+    println( "processing $prefix/$fname using datadir $DATADIR")
     //make tempdir in java
     val tmpdir: Path? = try {
         Files.createTempDirectory("fumes").also {
@@ -100,17 +96,20 @@ fun main(args: Array<String>) {
     } catch (e: IOException) {
         throw RuntimeException(e)
     }
+
+    val curl=(prefix.matches ( "^http[s]?://.*".toRegex()))
     val streamScript = """#!/bin/bash
             echo processing in $tmpdir
             pushd $tmpdir
             #  create 2 random fifos in bash
             mkfifo $tmpdir/fifo1
-            zcat <(curl "$prefix$fname"   ) |tee >(gztool -I ${fname}.gzi &&mv  ${fname}.gzi ${DATADIR}) fifo1
+            set -x
+            ${if(curl)"curl" else "cat"} "$prefix/$fname" |   gztool -I ${fname}.gzi -b 0 >fifo1 &&mv  ${fname}.gzi ${DATADIR}  
             """.trimIndent().trimIndent()
-    val name = tmpdir.toString() + "/fifo1"
-    val process = ProcessBuilder("/bin/bash", "-c", streamScript).start()
+    val fifoname = tmpdir.toString() + "/fifo1"
+    val process = ProcessBuilder("/bin/bash", "-c", streamScript).inheritIO().start()
 
-    val streamLines = streamLines(name)
+    val streamLines = streamLines(fifoname)
     val preOptDepths = _l[0,0,1]
     val decodeMe = IndexWeeklyGalaxyDump.EdSystem.cache.drop(1)
     val seqRows =
@@ -129,7 +128,7 @@ fun main(args: Array<String>) {
                     value
                 }
                 val row: RowVec = IndexWeeklyGalaxyDump.EdSystem.cache.size j { x: Int ->
-                    (if (x == 0) seek else theJson[x - 1]) j { IndexWeeklyGalaxyDump.EdSystem.cache[x].run { name j typeMemento } }
+                    (if (x == 0) seek else theJson[x - 1]) j { IndexWeeklyGalaxyDump.EdSystem.cache[x].run { fifoname j typeMemento } }
                 }
                 yield(row).debug {  readLogger?.report()?.let(::println) }
             }
