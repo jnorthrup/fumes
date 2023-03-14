@@ -1,7 +1,6 @@
 package ed.fumes
 
 import borg.trikeshed.common.Files.streamLines
-import borg.trikeshed.common.collections._l
 import borg.trikeshed.common.collections._s
 import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.IsamDataFile
@@ -9,10 +8,14 @@ import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
 import ed.fumes.IndexWeeklyGalaxyDump.meta
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import kotlin.time.ExperimentalTime
 
 
 enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
@@ -24,6 +27,9 @@ enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
     Z(IoDouble, 2, 2),
     ;
 
+    // @Spansh: If you were really interested in reducing size you could reduce the double to float, or even use fixed point integers (which is what the game actually uses), I think those are 32bit and the actual coordinate multiplied by 128 (and with an offset as well).
+// There's more some sample code from EDSM here: https://github.com/EDSM-NET/Component/blob/master/System/Coordinates.php but @Alot (EDTS) has a lot more knowledge about that in edts
+// https://bitbucket.org/Esvandiary/edts/src (edited)
     val path: JsPath = (pathKey).toList().toJsPath
     val reifiedType by lazy { this.typeMemento in _s[IoDouble, IoBoolean, IoNothing] }
 
@@ -84,6 +90,7 @@ object IndexWeeklyGalaxyDump {
 }
 
 
+@OptIn(ExperimentalTime::class)
 fun main(args: Array<String>) {
     val dataDir =  /* current working dir */System.getProperty("user.dir") + "/data"
 
@@ -110,9 +117,10 @@ fun main(args: Array<String>) {
             #  create 2 random fifos in bash
             mkfifo $tmpdir/fifo1
             set -x
-         ${if (curl) "curl" else "cat"} "$prefix/$fname" | tee  >(gztool -z -I $gziFname && mv  ${gziFname} ${dataDir})|    
+         ${if (curl) "curl" else "cat"} "$prefix/$fname" | tee  >(gztool -z -I $gziFname && mv  ${gziFname} ${dataDir};)|    
              gzip -d  >$fifoname
-             """.trimIndent().trimIndent()
+          ls -lah ${dataDir}  
+           """.trimIndent().trimIndent()
     val process = ProcessBuilder("/usr/bin/taskset", "-c", "0-3", "/bin/bash", "-c", streamScript).inheritIO().start()
 
     //64 = ~70
@@ -122,47 +130,67 @@ fun main(args: Array<String>) {
     //32k = 2206.6177/s
     //128k 2885.577/s
     val streamLines = streamLines(fifoname, 128 * 1024)
-    val preOptDepths = _l[0, 0, 1]
+//    val preOptDepths = _l[0, 0, 1]
     val decodeMe = EdSystem.cache.drop(1)
+    var watermark = 0UL
     val seqRows =
         sequence<RowVec> {
-            var readLogger: FibonacciReporter? = null
-            run { readLogger = FibonacciReporter(noun = "systems") }
+            val readLogger: FibonacciReporter = FibonacciReporter(noun = "systems")
             /* spansh format is a json array, but the files are sub-terabyte so we just want a line-scanner, we chop the first line */
-            streamLines.drop(1)
-                .forEach { (seek: Long, line: ByteArray): Join<Long, ByteArray> ->
-                    val charSeries: Series<Char> = CharSeries((line).decodeToChars())
-                    val sanityCheck: MutableList<Int> = mutableListOf()
-                    val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
-                    kotlin.assert(preOptDepths.equals(sanityCheck))
-                    val theJson = decodeMe α { it: EdSystem ->
-                        val path = it.path
-                        val typeMemento = it.typeMemento
-                        val reifyResult = it.reifiedType
-                        val value = JsonParser.jsPath(jsElement j charSeries, path, reifyResult, sanityCheck)
-                        if (!reifyResult) {
-                            val charSeries = value as Series<Char>
-                            when (typeMemento) {
-                                IoNothing -> null
-                                IoShort -> charSeries.parseLong().toShort()
-                                IoUShort -> charSeries.parseLong().toUShort()
-                                IoInt -> charSeries.parseLong().toInt()
-                                IoUInt -> charSeries.parseLong().toUInt()
-                                IoLong -> charSeries.parseLong()
-                                IoULong -> charSeries.parseLong().toULong()
-                                IoCharSeries -> value
-                                IoString -> charSeries.asString()
-                                else -> throw RuntimeException("unhandled typeMemento $typeMemento")
-                            }
-
-                        } else value
-
-                    }
-                    val row: RowVec = EdSystem.cache.size j { x: Int ->
-                        (if (x == 0) seek.toULong() else theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
-                    }
-                    yield(row).also { readLogger?.report()?.let(::println) }
+            for ((seek: Long, line: ByteArray) in streamLines) {
+                watermark = seek.toULong()
+                if (line.size < 8) continue
+                //meaningless for this data; begin and end braces
+                val charSeries: Series<Char> = CharSeries((line).decodeToChars())
+                val sanityCheck: MutableList<Int> = mutableListOf()
+                val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
+                //  kotlin.assert(preOptDepths.equals(sanityCheck))
+                val theJson = decodeMe α { it: EdSystem ->
+                    val path = it.path
+                    val typeMemento = it.typeMemento
+                    val reifyResult = it.reifiedType
+                    val value = JsonParser.jsPath(jsElement j charSeries, path, reifyResult, sanityCheck)
+                    if (!reifyResult) {
+                        val charSeries: Series<Char> = value as Series<Char>
+                        when (typeMemento) {
+                            IoNothing -> null
+                            IoShort -> charSeries.parseLong().toShort()
+                            IoUShort -> charSeries.parseLong().toUShort()
+                            IoInt -> charSeries.parseLong().toInt()
+                            IoUInt -> charSeries.parseLong().toUInt()
+                            IoLong -> charSeries.parseLong()
+                            IoULong -> charSeries.parseLong().toULong()
+                            IoCharSeries -> value
+                            IoString -> charSeries.asString()
+                            else -> throw RuntimeException("unhandled typeMemento $typeMemento")
+                        }
+                    } else value
                 }
+                val row: RowVec = EdSystem.cache.size j { x: Int ->
+                    (if (x == 0) seek.toULong() else theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
+                }
+                yield(row).also { readLogger.report()?.let(::println) }
+            }
+            watermark.toLong().humanReadableByteCountIEC.let {
+                //write the stats of total in how much time since readLogger started, avg per second
+                val fullRun = readLogger.begin.elapsedNow()
+                val elapsedNow = fullRun.toString()
+                watermark.toLong().humanReadableByteCountIEC.let { sumBytes ->
+                    println(
+                        "read $sumBytes in $elapsedNow -- avg ${
+                            //lines per sec
+                            readLogger.count.div(fullRun.inWholeSeconds)
+                                .toLong().humanReadableByteCountIEC.replace("iB", "iLOC/json ")
+                        },  ${
+                            //watermark bytes per second 
+                            watermark.div(fullRun.inWholeSeconds.toUInt()).toLong().humanReadableByteCountIEC
+                        }  per second; avgline size ${
+                            //avg line size
+                            watermark.div(readLogger.count.toUInt()).toLong().humanReadableByteCountIEC
+                        }"
+                    )
+                }
+            }
         }
 
     val datafilename = dataDir + "/galaxy_1day.isam"
