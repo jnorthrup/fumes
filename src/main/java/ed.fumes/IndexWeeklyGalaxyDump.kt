@@ -2,6 +2,7 @@ package ed.fumes
 
 import borg.trikeshed.common.Files.streamLines
 import borg.trikeshed.common.collections._l
+import borg.trikeshed.common.collections._s
 import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.IsamDataFile
 import borg.trikeshed.isam.meta.IOMemento.*
@@ -13,6 +14,23 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
+
+enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
+    Seek(IoULong),
+    Id64(IoULong, 0),
+    Name(IoCharSeries, 1),
+    X(IoDouble, 2, 0),
+    Y(IoDouble, 2, 1),
+    Z(IoDouble, 2, 2),
+    ;
+
+    val path: JsPath = (pathKey).toList().toJsPath
+    val reifiedType by lazy { this.typeMemento in _s[IoDouble, IoBoolean, IoNothing] }
+
+    companion object {
+        val cache = EdSystem.values()
+    }
+}
 
 /**
  * galactic index
@@ -53,40 +71,26 @@ import java.util.concurrent.TimeUnit
  * @see [...](https://www.reddit.com/r/EliteDangerous/comments/hvuwb6/galmap_starnaming_from_id64/)
  */
 object IndexWeeklyGalaxyDump {
-    enum class EdSystem(val typeMemento: TypeMemento,   vararg  pathKey: Any?) {
-        Seek(IoLong),
-        Id64(IoLong, 0),
-        Name(IoString, 1),
-        X(IoDouble, 2, 0),
-        Y(IoDouble, 2, 1),
-        Z(IoDouble, 2, 2),
-        ;
-
-        val path: JsPath = (pathKey).toList().toJsPath
-
-        companion object {
-            val cache = EdSystem.values()
-        }
-    }
 
     val EdEnumCache = EdSystem.values()
 
     val varchars = mapOf(EdSystem.Name.name to 64)
-    val meta by lazy {( EdSystem.cache α { (it.name j it.typeMemento) }).debug {
-        println("galaxy coordinates schema: "+it.map (Join<*,*>::pair))
-    }}
-
-
+    val meta by lazy {
+        (EdSystem.cache α { (it.name j it.typeMemento) }).debug {
+            println("galaxy coordinates schema: " + it.map(Join<*, *>::pair))
+        }
     }
+
+}
 
 
 fun main(args: Array<String>) {
-    val DATADIR =  /* current working dir */System.getProperty("user.dir") + "/data"
+    val dataDir =  /* current working dir */System.getProperty("user.dir") + "/data"
 
     val prefix = args.takeIf { it.size > 0 }?.let { args[0] } ?: "https://downloads.spansh.co.uk/"
     val fname = args.takeIf { it.size > 1 }?.let { args[1] } ?: "galaxy_1day.json.gz"
 
-    println( "processing $prefix/$fname using datadir $DATADIR")
+    println("processing $prefix/$fname using datadir $dataDir")
     //make tempdir in java
     val tmpdir: Path? = try {
         Files.createTempDirectory("fumes").also {
@@ -97,52 +101,79 @@ fun main(args: Array<String>) {
         throw RuntimeException(e)
     }
 
-    val curl=(prefix.matches ( "^http[s]?://.*".toRegex()))
+    val curl = (prefix.matches("^http[s]?://.*".toRegex()))
+    val fifoname = tmpdir.toString() + "/fifo1"
+    val gziFname = fname.replace(".gz", ".gzi")
     val streamScript = """#!/bin/bash
             echo processing in $tmpdir
             pushd $tmpdir
             #  create 2 random fifos in bash
             mkfifo $tmpdir/fifo1
             set -x
-            ${if(curl)"curl" else "cat"} "$prefix/$fname" |   gztool -I ${fname}.gzi -b 0 >fifo1 &&mv  ${fname}.gzi ${DATADIR}  
-            """.trimIndent().trimIndent()
-    val fifoname = tmpdir.toString() + "/fifo1"
-    val process = ProcessBuilder("/bin/bash", "-c", streamScript).inheritIO().start()
+         ${if (curl) "curl" else "cat"} "$prefix/$fname" | tee  >(gztool -z -I $gziFname && mv  ${gziFname} ${dataDir})|    
+             gzip -d  >$fifoname
+             """.trimIndent().trimIndent()
+    val process = ProcessBuilder("/usr/bin/taskset", "-c", "0-3", "/bin/bash", "-c", streamScript).inheritIO().start()
 
-    val streamLines = streamLines(fifoname)
-    val preOptDepths = _l[0,0,1]
-    val decodeMe = IndexWeeklyGalaxyDump.EdSystem.cache.drop(1)
+    //64 = ~70
+    //1024 = 500
+    //4096 = 1000
+    //16k = 1974.3422/s
+    //32k = 2206.6177/s
+    //128k 2885.577/s
+    val streamLines = streamLines(fifoname, 128 * 1024)
+    val preOptDepths = _l[0, 0, 1]
+    val decodeMe = EdSystem.cache.drop(1)
     val seqRows =
         sequence<RowVec> {
-            var readLogger: FibonacciReporter? =null
-            debug { readLogger = FibonacciReporter(noun = "systems") }
-            streamLines.drop(1).forEach { (seek: Long, line: ByteArray): Join<Long, ByteArray> ->
-                val charSeries:Series<Char> =CharSeries( (line).decodeToChars())
-                val sanityCheck: MutableList<Int> = mutableListOf()
-                val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
-                kotlin.assert(preOptDepths.equals(sanityCheck))
-                val theJson = decodeMe α { it ->
-                    val path = it.path
-                    val typeMemento = it.typeMemento
-                    val value = JsonParser.jsPath(jsElement j charSeries, path, true, sanityCheck)
-                    value
+            var readLogger: FibonacciReporter? = null
+            run { readLogger = FibonacciReporter(noun = "systems") }
+            /* spansh format is a json array, but the files are sub-terabyte so we just want a line-scanner, we chop the first line */
+            streamLines.drop(1)
+                .forEach { (seek: Long, line: ByteArray): Join<Long, ByteArray> ->
+                    val charSeries: Series<Char> = CharSeries((line).decodeToChars())
+                    val sanityCheck: MutableList<Int> = mutableListOf()
+                    val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
+                    kotlin.assert(preOptDepths.equals(sanityCheck))
+                    val theJson = decodeMe α { it: EdSystem ->
+                        val path = it.path
+                        val typeMemento = it.typeMemento
+                        val reifyResult = it.reifiedType
+                        val value = JsonParser.jsPath(jsElement j charSeries, path, reifyResult, sanityCheck)
+                        if (!reifyResult) {
+                            val charSeries = value as Series<Char>
+                            when (typeMemento) {
+                                IoNothing -> null
+                                IoShort -> charSeries.parseLong().toShort()
+                                IoUShort -> charSeries.parseLong().toUShort()
+                                IoInt -> charSeries.parseLong().toInt()
+                                IoUInt -> charSeries.parseLong().toUInt()
+                                IoLong -> charSeries.parseLong()
+                                IoULong -> charSeries.parseLong().toULong()
+                                IoCharSeries -> value
+                                IoString -> charSeries.asString()
+                                else -> throw RuntimeException("unhandled typeMemento $typeMemento")
+                            }
+
+                        } else value
+
+                    }
+                    val row: RowVec = EdSystem.cache.size j { x: Int ->
+                        (if (x == 0) seek.toULong() else theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
+                    }
+                    yield(row).also { readLogger?.report()?.let(::println) }
                 }
-                val row: RowVec = IndexWeeklyGalaxyDump.EdSystem.cache.size j { x: Int ->
-                    (if (x == 0) seek else theJson[x - 1]) j { IndexWeeklyGalaxyDump.EdSystem.cache[x].run { fifoname j typeMemento } }
-                }
-                yield(row).debug {  readLogger?.report()?.let(::println) }
-            }
         }
 
-    val datafilename = DATADIR + "/galaxy_1day.isam"
-            println("writing isam to $datafilename")
+    val datafilename = dataDir + "/galaxy_1day.isam"
+    println("writing isam to $datafilename")
 
-            IsamDataFile.append(
-                seqRows.asIterable(),
-                meta, datafilename, IndexWeeklyGalaxyDump.varchars
-            )
-            println("done")
-        process.waitFor(2, TimeUnit.MINUTES)
+    IsamDataFile.append(
+        seqRows.asIterable(),
+        meta, datafilename, IndexWeeklyGalaxyDump.varchars
+    )
+    println("done")
+    process.waitFor(2, TimeUnit.MINUTES)
 
-        }
+}
 
