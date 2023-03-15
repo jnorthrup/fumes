@@ -1,15 +1,20 @@
 package ed.fumes
 
 import borg.trikeshed.common.Files.streamLines
+import borg.trikeshed.common.collections._a
 import borg.trikeshed.common.collections._s
 import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.IsamDataFile
+import borg.trikeshed.isam.IsamDataFile.Companion.append
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
 import ed.fumes.IndexWeeklyGalaxyDump.meta
-import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.internal.ChannelFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.*
 import java.nio.file.Files
@@ -166,9 +171,12 @@ fun main(args: Array<String>) {
                         }
                     } else value
                 }
-                val row: RowVec = EdSystem.cache.size j { x: Int ->
-                    (if (x == 0) seek.toULong() else theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
-                }
+                val row: RowVec =
+                    EdSystem.cache.size j { x: Int ->
+                        (if (x == 0) seek.toULong()
+                        else
+                            theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
+                    }
                 yield(row).also { readLogger.report()?.let(::println) }
             }
             watermark.toLong().humanReadableByteCountIEC.let {
@@ -193,15 +201,31 @@ fun main(args: Array<String>) {
             }
         }
 
-    val datafilename = dataDir + "/galaxy_1day.isam"
-    println("writing isam to $datafilename")
 
-    IsamDataFile.append(
-        seqRows.asIterable(),
-        meta, datafilename, IndexWeeklyGalaxyDump.varchars
-    )
-    println("done")
-    process.waitFor(2, TimeUnit.MINUTES)
+    val theMSF = MutableSharedFlow<RowVec>()
+    runBlocking {
+        EdSystem.cache.forEachIndexed { index, attr ->
+            val datafilename = "$tmpdir/${fname.replace("\\.gz$".toRegex(), ".${attr.name}.isam")}"
+
+            //the transform lets us multiplex the Isam outputs to different files
+            launch{
+                append(
+                    theMSF,
+                    datafilename,
+                    IndexWeeklyGalaxyDump.varchars
+                ) { 1 j { x: Int -> it.b(index) } }
+            }.also { println("launching $datafilename creation") }
+        }
+        launch { seqRows.forEach { theMSF.emit(it) } }
+    }
+
+    process.waitFor()
+    val successMove="""!/bin/bash
+        |pushd $tmpdir
+        |mv -vv *isam* ${dataDir}
+    """.trimMargin()
+
+    ProcessBuilder("/bin/bash", "-c", successMove).inheritIO().start().waitFor()
 
 }
 
