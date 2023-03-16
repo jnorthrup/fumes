@@ -8,20 +8,20 @@ Bring along every module crucial to the destination going in hot-- and the best 
 Coming in Spring 2023 to theaters everywhere, the EDMC plugin absolutely noone is asking for... Fumes!
 
 
-# galaxy.gz ingest
+## galaxy.gz ingest
 
 on my pc built in tmpfs (32GiB RAM, 12P+4E cores , 5/3.5GHz ) it takes 38 minutes to ingest the 65GiB galaxy.json.gz file:
 
-`$ time ./fumes ingest galaxy.json.gz`
+ 
 `read 336.63 GiB in 38m 55.825937802s -- avg 39.91 KiLOC/json ,  147.62 MiB  per second; avgline size 3.69 KiB`
 
 the working plan is to import the daily, and the full galaxy.json.gz files, and then prioritize based on smaller size
 
-daemon udpates would ping the server for HEAD digests and dispatch when something is new.
+daemon updates would ping the server for HEAD digests and dispatch when something is new.
 
-## indexes 
+### indexes 
 
-## as btrfs compression
+#### as btrfs compression
 
 I checked this on my btrfs compressed volume mounted as `(rw,noatime,compress=lzo,ssd,discard=async,space_cache=v2)`
 
@@ -33,7 +33,7 @@ the isam indexes are apparently btrfs lzo friendly.  compsize says:
 | none  | 100% |       1.3G |         1.3G |       1.3G |      
 | lzo   |  30% |       2.2G |         7.1G |       7.1G |      
 
-### raw 
+#### raw 
 
  * total bytes for gzip cache:  65G
 
