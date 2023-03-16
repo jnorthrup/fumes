@@ -19,6 +19,26 @@ the working plan is to import the daily, and the full galaxy.json.gz files, and 
 
 daemon udpates would ping the server for HEAD digests and dispatch when something is new.
 
+## indexes 
+
+## as btrfs compression
+
+I checked this on my btrfs compressed volume mounted as `(rw,noatime,compress=lzo,ssd,discard=async,space_cache=v2)`
+
+the isam indexes are apparently btrfs lzo friendly.  compsize says:
+
+| Type  | Perc | Disk Usage | Uncompressed | Referenced |
+|-------|-----:|-----------:|-------------:|-----------:|
+| TOTAL |  41% |       3.5G |         8.4G |       8.4G |      
+| none  | 100% |       1.3G |         1.3G |       1.3G |      
+| lzo   |  30% |       2.2G |         7.1G |       7.1G |      
+
+### raw 
+
+ * total bytes for gzip cache:  65G
+
+ * total index bytes: 8.5G
+
 | size | file                            |
 |------|---------------------------------|
 | 729M | galaxy.json.Id64.isam           |
@@ -49,19 +69,3 @@ daemon udpates would ping the server for HEAD digests and dispatch when somethin
 | 112  | galaxy_1day.json.Z.isam.meta    |
 | 563M | galaxy_1day.json.gz             |
 | 2.0M | galaxy_1day.json.gzi            |
-
-## indexes as btrfs compression
-
-I checked this on my btrfs compressed volume mounted as `(rw,noatime,compress=lzo,ssd,discard=async,space_cache=v2)`
- 
-the isam indexes are apparently btrfs lzo friendly.  compsize says: 
-
-| Type  | Perc | Disk Usage | Uncompressed | Referenced |
-|-------|-----:|-----------:|-------------:|-----------:|
-| TOTAL |  41% |       3.5G |         8.4G |       8.4G |      
-| none  | 100% |       1.3G |         1.3G |       1.3G |      
-| lzo   |  30% |       2.2G |         7.1G |       7.1G |      
-
-total bytes for gzip cache:  65G
-
-total index bytes: 8.5G  
