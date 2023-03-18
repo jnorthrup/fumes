@@ -17,7 +17,7 @@ on my pc built in tmpfs (32GiB RAM, 12P+4E cores , 5/3.5GHz ) it takes 38 minute
 
 the working plan is to import the daily, and the full galaxy.json.gz files, and then prioritize based on smaller size
 
-daemon updates would ping the server for HEAD digests and dispatch when something is new.
+daemon updates would ping the server for HEAD digests and dispatch when something is new.S
 
 ### indexes 
 

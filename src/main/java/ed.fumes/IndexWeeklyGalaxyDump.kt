@@ -2,21 +2,19 @@ package ed.fumes
 
 import borg.trikeshed.common.Files.streamLines
 import borg.trikeshed.common.collections._s
+import borg.trikeshed.common.use
 import borg.trikeshed.cursor.*
+import borg.trikeshed.isam.IsamDataFile
 import borg.trikeshed.isam.IsamDataFile.Companion.append
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.*
-import java.lang.Thread.sleep
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
-import kotlin.time.toJavaDuration
 
 
 enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
@@ -120,11 +118,8 @@ fun main(args: Array<String>) {
             set -x
          ${if (curl) "curl" else "cat"} "$prefix/$fname" | tee  >(gztool -z -I $gziFname && 
          mv -vv *isam* ${gziFname} ${dataDir};)|    
-             gzip -d  >$fifoname
-             sleep 10s
-             
-          ls -lah ${dataDir}  
-          exit 0
+             gzip -d  >$fifoname 
+          ls -lah ${dataDir}   
            """.trimIndent().trimIndent()
     val process = ProcessBuilder("/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", streamScript).inheritIO().start()
 
@@ -138,109 +133,92 @@ fun main(args: Array<String>) {
 //    val preOptDepths = _l[0, 0, 1]
     val decodeMe = EdSystem.cache.drop(1)
     var watermark = 0UL
-    val seqRows =
-        sequence<RowVec> {
-            val readLogger: FibonacciReporter = FibonacciReporter(noun = "systems")
-            /* spansh format is a json array, but the files are sub-terabyte so we just want a line-scanner, we chop the first line */
-            for ((seek: Long, line: ByteArray) in streamLines) {
-                watermark = seek.toULong()
-                if (line.size < 8) continue
-                //meaningless for this data; begin and end braces
-                val charSeries: Series<Char> = CharSeries((line).decodeToChars())
-                val sanityCheck: MutableList<Int> = mutableListOf()
-                val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
-                //  kotlin.assert(preOptDepths.equals(sanityCheck))
-                val theJson = decodeMe α { it: EdSystem ->
-                    val path = it.path
-                    val typeMemento = it.typeMemento
-                    val reifyResult = it.reifiedType
-                    val value = JsonParser.jsPath(jsElement j charSeries, path, reifyResult, sanityCheck)
-                    if (!reifyResult) {
-                        val charSeries: Series<Char> = value as Series<Char>
-                        when (typeMemento) {
-                            IoNothing -> null
-                            IoShort -> charSeries.parseLong().toShort()
-                            IoUShort -> charSeries.parseLong().toUShort()
-                            IoInt -> charSeries.parseLong().toInt()
-                            IoUInt -> charSeries.parseLong().toUInt()
-                            IoLong -> charSeries.parseLong()
-                            IoULong -> charSeries.parseLong().toULong()
-                            IoCharSeries -> value
-                            IoString -> charSeries.asString()
-                            else -> throw RuntimeException("unhandled typeMemento $typeMemento")
-                        }
-                    } else value
-                }
-                val row: RowVec =
-                    EdSystem.cache.size j { x: Int ->
-                        (if (x == 0) seek.toULong()
-                        else
-                            theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
+    val readLogger: FibonacciReporter = FibonacciReporter(noun = "systems")
+    val seqRows = sequence<RowVec> {
+        /* spansh format is a json array, but the files are sub-terabyte so we just want a line-scanner, we chop the first line */
+        for ((seek: Long, line: ByteArray) in streamLines) {
+            watermark = seek.toULong()
+            if (line.size < 8) continue
+            //meaningless for this data; begin and end braces
+            val charSeries: Series<Char> = CharSeries((line).decodeToChars())
+            val sanityCheck: MutableList<Int> = mutableListOf()
+            val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
+
+            //  kotlin.assert(preOptDepths.equals(sanityCheck))
+            val theJson = decodeMe α { it: EdSystem ->
+                val path = it.path
+                val typeMemento = it.typeMemento
+                val reifyResult = it.reifiedType
+                val value = JsonParser.jsPath(jsElement j charSeries, path, reifyResult, sanityCheck)
+                if (!reifyResult) {
+                    val charSeries: Series<Char> = value as Series<Char>
+                    when (typeMemento) {
+                        IoNothing -> null
+                        IoShort -> charSeries.parseLong().toShort()
+                        IoUShort -> charSeries.parseLong().toUShort()
+                        IoInt -> charSeries.parseLong().toInt()
+                        IoUInt -> charSeries.parseLong().toUInt()
+                        IoLong -> charSeries.parseLong()
+                        IoULong -> charSeries.parseLong().toULong()
+                        IoCharSeries -> value
+                        IoString -> charSeries.asString()
+                        else -> throw RuntimeException("unhandled typeMemento $typeMemento")
                     }
-                yield(row).also { readLogger.report()?.let(::println) }
+                } else value
             }
-            watermark.toLong().humanReadableByteCountIEC.let {
-                //write the stats of total in how much time since readLogger started, avg per second
-                val fullRun = readLogger.begin.elapsedNow()
-                val elapsedNow = fullRun.toString()
-                watermark.toLong().humanReadableByteCountIEC.let { sumBytes ->
-                    println(
-                        "read $sumBytes in $elapsedNow -- avg ${
-                            //lines per sec
-                            readLogger.count.div(fullRun.inWholeSeconds)
-                                .toLong().humanReadableByteCountIEC.replace("iB", "iLOC/json ")
-                        },  ${
-                            //watermark bytes per second 
-                            watermark.div(fullRun.inWholeSeconds.toUInt()).toLong().humanReadableByteCountIEC
-                        }  per second; avgline size ${
-                            //avg line size
-                            watermark.div(readLogger.count.toUInt()).toLong().humanReadableByteCountIEC
-                        }"
-                    )
-                }
-                //sleep 10s
-                sleep(10.seconds.toJavaDuration())
-                System.exit(0)
+            val row: RowVec = EdSystem.cache.size j { x: Int ->
+                (if (x == 0) seek.toULong() else theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
             }
+            yield(row).also { readLogger.report()?.let(::println) }
         }
-
-
-    val theMSF = MutableSharedFlow<RowVec>()
-    runBlocking {
-        EdSystem.cache.forEachIndexed { index, attr ->
-            val datafilename = "$tmpdir/${fname.replace("\\.gz$".toRegex(), ".${attr.name}.isam")}"
-
-            //the transform lets us multiplex the Isam outputs to different files
-            launch {
-
-                val f: (RowVec) -> RowVec = when (attr.typeMemento) {
-                    IoDouble -> {
-                        val newMeta = (attr.name j IoInt as TypeMemento).`↺`
-                        { rowVec ->
-                            1 j { x: Int ->
-                                val (inVal: Any?, _) = rowVec.b(index)
-                                (inVal as Double) * 128 j newMeta
-                            }
-                        }
-                    }
-
-                    else -> {
-                        { rowVec -> 1 j { x: Int -> rowVec.b(index) } }
-                    }
-                }
-
-                append(
-                    theMSF,
-                    datafilename,
-                    IndexWeeklyGalaxyDump.varchars,
-                    f
+        watermark.toLong().humanReadableByteCountIEC.let {
+            //write the stats of total in how much time since readLogger started, avg per second
+            val fullRun = readLogger.begin.elapsedNow()
+            val elapsedNow = fullRun.toString()
+            watermark.toLong().humanReadableByteCountIEC.let { sumBytes ->
+                println(
+                    "read $sumBytes in $elapsedNow -- avg ${
+                        //lines per sec
+                        readLogger.count.div(fullRun.inWholeSeconds)
+                            .toLong().humanReadableByteCountIEC.replace("iB", "iLOC/json ")
+                    },  ${
+                        //watermark bytes per second 
+                        watermark.div(fullRun.inWholeSeconds.toUInt()).toLong().humanReadableByteCountIEC
+                    }  per second; avgline size ${
+                        //avg line size
+                        watermark.div(readLogger.count.toUInt()).toLong().humanReadableByteCountIEC
+                    }"
                 )
-
-            }.also { println("launching $datafilename creation") }
+            }
         }
-        launch { seqRows.forEach { theMSF.emit(it) } }
     }
 
-    process.waitFor()
-}
+    val isamName = fname.replace("\\.gz$".toRegex(), ".EdSystem.isam")
+    val datafilename = "$tmpdir/$isamName"
+    runBlocking {
 
+        append(
+            seqRows,
+            datafilename,
+            IndexWeeklyGalaxyDump.varchars,
+            null
+        )
+        joinAll()
+    }
+    process.waitFor()
+    runBlocking { //
+        IsamDataFile(/*the one we just appended*/ datafileFilename = "$dataDir/$isamName").use { curs ->
+            println("|+---open---+|")
+
+            val s: Int = curs.size
+//            assert(s == readLogger.count) { "expected ${readLogger.count} rows, got $s" }
+            val meta: Join<Int, (Int) -> Join<String, TypeMemento>> = curs.meta
+            readLogger.close()
+            println("table summary: $s rows, ${meta.size} columns")
+            println("|+---head---+|")
+            curs.head()
+        }
+    }
+    println("done")
+
+}
