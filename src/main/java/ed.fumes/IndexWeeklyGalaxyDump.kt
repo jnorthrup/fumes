@@ -1,23 +1,24 @@
+@file:Suppress("OVERRIDE_BY_INLINE", "NOTHING_TO_INLINE")
+
 package ed.fumes
 
-import borg.trikeshed.common.Files.streamLines
+import borg.trikeshed.common.Files.iterateLines
 import borg.trikeshed.common.collections._s
-import borg.trikeshed.common.use
 import borg.trikeshed.cursor.*
-import borg.trikeshed.isam.IsamDataFile
-import borg.trikeshed.isam.IsamDataFile.Companion.append
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
+import ed.fumes.EdSystemMetaLite.Companion.cache
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import kotlin.time.ExperimentalTime
 
 
-enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
+enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) {
     Seek(IoULong),
     Id64(IoULong, 0),
     Name(IoCharSeries, 1),
@@ -30,10 +31,10 @@ enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
 // There's more some sample code from EDSM here: https://github.com/EDSM-NET/Component/blob/master/System/Coordinates.php but @Alot (EDTS) has a lot more knowledge about that in edts
 // https://bitbucket.org/Esvandiary/edts/src (edited)
     val path: JsPath = (pathKey).toList().toJsPath
-    val reifiedType by lazy { this.typeMemento in _s[IoDouble, IoBoolean, IoNothing] }
+    val needReify by lazy { this.typeMemento in _s[IoDouble, IoBoolean, IoNothing] }
 
     companion object {
-        val cache = EdSystem.values()
+        val cache = EdSystemMetaLite.values()
     }
 }
 
@@ -77,24 +78,21 @@ enum class EdSystem(val typeMemento: TypeMemento, vararg pathKey: Any?) {
  */
 object IndexWeeklyGalaxyDump {
 
-    val EdEnumCache = EdSystem.values()
-
-    val varchars = mapOf(EdSystem.Name.name to 64)
+    val varchars = mapOf(EdSystemMetaLite.Name.name to 64)
     val meta by lazy {
-        (EdSystem.cache α { (it.name j it.typeMemento) }).debug {
+        (cache α { (it.name j it.typeMemento) }).debug {
             println("galaxy coordinates schema: " + it.map(Join<*, *>::pair))
         }
     }
-
 }
 
 
 @OptIn(ExperimentalTime::class)
 fun main(args: Array<String>) {
     val dataDir =  /* current working dir */System.getProperty("user.dir") + "/data"
-
     val prefix = args.takeIf { it.size > 0 }?.let { args[0] } ?: "https://downloads.spansh.co.uk/"
     val fname = args.takeIf { it.size > 1 }?.let { args[1] } ?: "galaxy_1day.json.gz"
+    val isamName: String = fname.replace("\\.gz$".toRegex(), ".lite.isam").toString()
 
     println("processing $prefix/$fname using datadir $dataDir")
     //make tempdir in java
@@ -106,119 +104,113 @@ fun main(args: Array<String>) {
     } catch (e: IOException) {
         throw RuntimeException(e)
     }
-
     val curl = (prefix.matches("^http[s]?://.*".toRegex()))
     val fifoname = tmpdir.toString() + "/fifo1"
     val gziFname = fname.replace(".gz", ".gzi")
-    val streamScript = """#!/bin/bash
-            echo processing in $tmpdir
+    runBlocking {
+        val procJob = launch {
+            val streamScript = """#!/bin/bash
+              set -x    
+                echo processing in $tmpdir
             pushd $tmpdir
             #  create 2 random fifos in bash
             mkfifo $tmpdir/fifo1
             set -x
-         ${if (curl) "curl" else "cat"} "$prefix/$fname" | tee  >(gztool -z -I $gziFname && 
-         mv -vv *isam* ${gziFname} ${dataDir};)|    
-             gzip -d  >$fifoname 
+         ${if (curl) "curl" else "cat"} "$prefix/$fname" |gztool >$fifoname -z -b0 -I $gziFname && mv -vv *isam* ${gziFname} ${dataDir};
+         
           ls -lah ${dataDir}   
-           """.trimIndent().trimIndent()
-    val process = ProcessBuilder("/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", streamScript).inheritIO().start()
-
-    //64 = ~70
-    //1024 = 500
-    //4096 = 1000
-    //16k = 1974.3422/s
-    //32k = 2206.6177/s
-    //128k 2885.577/s
-    val streamLines = streamLines(fifoname, 128 * 1024)
-//    val preOptDepths = _l[0, 0, 1]
-    val decodeMe = EdSystem.cache.drop(1)
-    var watermark = 0UL
-    val readLogger: FibonacciReporter = FibonacciReporter(noun = "systems")
-    val seqRows = sequence<RowVec> {
-        /* spansh format is a json array, but the files are sub-terabyte so we just want a line-scanner, we chop the first line */
-        for ((seek: Long, line: ByteArray) in streamLines) {
-            watermark = seek.toULong()
-            if (line.size < 8) continue
-            //meaningless for this data; begin and end braces
-            val charSeries: Series<Char> = CharSeries((line).decodeToChars())
-            val sanityCheck: MutableList<Int> = mutableListOf()
-            val jsElement: JsElement = JsonParser.index(charSeries, sanityCheck, 3)
-
-            //  kotlin.assert(preOptDepths.equals(sanityCheck))
-            val theJson = decodeMe α { it: EdSystem ->
-                val path = it.path
-                val typeMemento = it.typeMemento
-                val reifyResult = it.reifiedType
-                val value = JsonParser.jsPath(jsElement j charSeries, path, reifyResult, sanityCheck)
-                if (!reifyResult) {
-                    val charSeries: Series<Char> = value as Series<Char>
-                    when (typeMemento) {
-                        IoNothing -> null
-                        IoShort -> charSeries.parseLong().toShort()
-                        IoUShort -> charSeries.parseLong().toUShort()
-                        IoInt -> charSeries.parseLong().toInt()
-                        IoUInt -> charSeries.parseLong().toUInt()
-                        IoLong -> charSeries.parseLong()
-                        IoULong -> charSeries.parseLong().toULong()
-                        IoCharSeries -> value
-                        IoString -> charSeries.asString()
-                        else -> throw RuntimeException("unhandled typeMemento $typeMemento")
-                    }
-                } else value
-            }
-            val row: RowVec = EdSystem.cache.size j { x: Int ->
-                (if (x == 0) seek.toULong() else theJson[x - 1]) j { EdSystem.cache[x].run { name j typeMemento } }
-            }
-            yield(row).also { readLogger.report()?.let(::println) }
-        }
-        watermark.toLong().humanReadableByteCountIEC.let {
-            //write the stats of total in how much time since readLogger started, avg per second
-            val fullRun = readLogger.begin.elapsedNow()
-            val elapsedNow = fullRun.toString()
-            watermark.toLong().humanReadableByteCountIEC.let { sumBytes ->
-                println(
-                    "read $sumBytes in $elapsedNow -- avg ${
-                        //lines per sec
-                        readLogger.count.div(fullRun.inWholeSeconds)
-                            .toLong().humanReadableByteCountIEC.replace("iB", "iLOC/json ")
-                    },  ${
-                        //watermark bytes per second 
-                        watermark.div(fullRun.inWholeSeconds.toUInt()).toLong().humanReadableByteCountIEC
-                    }  per second; avgline size ${
-                        //avg line size
-                        watermark.div(readLogger.count.toUInt()).toLong().humanReadableByteCountIEC
-                    }"
-                )
+           """.trimIndent()
+            val process =
+                ProcessBuilder("/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", streamScript).inheritIO().start()
+            withContext(Dispatchers.IO) {
+                process.waitFor()
             }
         }
-    }
+        launch(Dispatchers.Unconfined ) {
+            val rowInstructions = EdSystemMetaLite.cache.map { it.needReify j it.path.toList().toJsPath }
+            val datafilename = "$tmpdir/$isamName"
 
-    val isamName = fname.replace("\\.gz$".toRegex(), ".EdSystem.isam")
-    val datafilename = "$tmpdir/$isamName"
-    runBlocking {
+            val rowMeta: Series<ColumnMeta> = EdSystemMetaLite.cache.map { (it.name j it.typeMemento) }.toSeries()
+            val metashadow = rowMeta.map { (it.first j it.second).`↺` }
+            val readLogger = FibonacciReporter(noun = "systems")
+            while (true) {
+                if (Files.exists(Paths.get(fifoname))) {
+                    println("datafile exists: $datafilename")
+                    break
+                } else {
+                    println("waiting for datafile: $datafilename")
+                    delay(1000)
+                }
+            }
 
-        append(
-            seqRows,
-            datafilename,
-            IndexWeeklyGalaxyDump.varchars,
-            null
-        )
+            val iterateLines = iterateLines(fifoname,156 )
+            //print the line to stdout
+
+            val count = iterateLines.count()
+            println("counted $count lines")
+
+        }
         joinAll()
     }
-    process.waitFor()
-    runBlocking { //
-        IsamDataFile(/*the one we just appended*/ datafileFilename = "$dataDir/$isamName").use { curs ->
-            println("|+---open---+|")
-
-            val s: Int = curs.size
-//            assert(s == readLogger.count) { "expected ${readLogger.count} rows, got $s" }
-            val meta: Join<Int, (Int) -> Join<String, TypeMemento>> = curs.meta
-            readLogger.close()
-            println("table summary: $s rows, ${meta.size} columns")
-            println("|+---head---+|")
-            curs.head()
-        }
-    }
-    println("done")
-
 }
+
+
+//            val lineIterable = iterateLines where { (_: Long, buf: Series<Byte>) -> buf.size > 3 }
+//
+//
+//
+//            val rowVecIterator: Iterable<RowVec> = lineIterable select { (offset, buf: Series<Byte>) ->
+//                ByteSeries(buf).trim.decodeUtf8().let { chBuf ->
+//                    (JsonParser.index(chBuf, takeFirst = 3) j chBuf).let { jsContext: JsContext ->
+//                        val watermark = offset
+//                        rowInstructions.mapIndexed { x, (reifyMe, jsPath) ->
+//                            when (x) {
+//                                0 -> watermark j rowMeta[x]
+//                                else -> {
+//                                    JsonParser.jsPath(jsContext, jsPath, reifyMe).let { jse ->
+//                                        if (reifyMe) jse
+//                                        else when (rowMeta[x].second) {
+//                                            IoDouble -> (jse as Series<Char>).parseDouble()
+//                                            IoLong -> (jse as Series<Char>).parseLong()
+//                                            IoCharSeries -> {
+//                                                var cs = CharSeries(jse as Series<Char>)
+//                                                if (cs.seekTo('"')) {
+//                                                    cs = cs.slice
+//                                                    if (cs.seekTo('"', '\\'))
+//                                                        cs.flip()
+//                                                    else TODO("trashed quote content charseries in path $jsPath")
+//                                                }
+//                                                cs.trim
+//                                            }
+//
+//                                            else -> {
+//                                                println("unhandled type ${rowMeta[x].second} in path $jsPath")
+//                                                (jse as Series<Char>).asString()
+//                                            }
+//                                        }
+//                                    }
+//                                }
+//                            } j metashadow[x]
+//
+//                        }.toSeries().also {
+//                            readLogger.report()
+//                        }
+//                    }
+//                }
+//            }
+//            rowVecIterator.forEach({ println(it) })
+//
+//            IsamDataFile.append(rowVecIterator, datafilename, IndexWeeklyGalaxyDump.varchars)
+//        }
+//    joinAll()
+//    }
+//
+//
+////    process.waitFor()
+//    tmpdir?.toFile()?.deleteRecursively()
+//    println("done")
+//
+//}
+//
+//
+//
