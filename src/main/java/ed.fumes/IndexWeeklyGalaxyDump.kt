@@ -2,8 +2,11 @@
 
 package ed.fumes
 
-import borg.trikeshed.common.Files.iterateLines
+import borg.trikeshed.common.BFrag
 import borg.trikeshed.common.collections._s
+import borg.trikeshed.common.copyInto
+import borg.trikeshed.common.size
+import borg.trikeshed.common.split1
 import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
@@ -14,8 +17,9 @@ import kotlinx.coroutines.flow.*
 import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
+import kotlin.time.Duration
 import kotlin.time.ExperimentalTime
+import kotlin.time.measureTime
 
 
 enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) {
@@ -28,8 +32,8 @@ enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) 
     ;
 
     // @Spansh: If you were really interested in reducing size you could reduce the double to float, or even use fixed point integers (which is what the game actually uses), I think those are 32bit and the actual coordinate multiplied by 128 (and with an offset as well).
-// There's more some sample code from EDSM here: https://github.com/EDSM-NET/Component/blob/master/System/Coordinates.php but @Alot (EDTS) has a lot more knowledge about that in edts
-// https://bitbucket.org/Esvandiary/edts/src (edited)
+    // There's more some sample code from EDSM here: https://github.com/EDSM-NET/Component/blob/master/System/Coordinates.php but @Alot (EDTS) has a lot more knowledge about that in edts
+    // https://bitbucket.org/Esvandiary/edts/src (edited)
     val path: JsPath = (pathKey).toList().toJsPath
     val needReify by lazy { this.typeMemento in _s[IoDouble, IoBoolean, IoNothing] }
 
@@ -105,112 +109,146 @@ fun main(args: Array<String>) {
         throw RuntimeException(e)
     }
     val curl = (prefix.matches("^http[s]?://.*".toRegex()))
-    val fifoname = tmpdir.toString() + "/fifo1"
     val gziFname = fname.replace(".gz", ".gzi")
+
     runBlocking {
         val procJob = launch {
-            val streamScript = """#!/bin/bash
-              set -x    
-                echo processing in $tmpdir
-            pushd $tmpdir
-            #  create 2 random fifos in bash
-            mkfifo $tmpdir/fifo1
-            set -x
-         ${if (curl) "curl" else "cat"} "$prefix/$fname" |gztool >$fifoname -z -b0 -I $gziFname && mv -vv *isam* ${gziFname} ${dataDir};
-         
-          ls -lah ${dataDir}   
-           """.trimIndent()
-            val process =
-                ProcessBuilder("/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", streamScript).inheritIO().start()
-            withContext(Dispatchers.IO) {
-                process.waitFor()
-            }
-        }
-        launch(Dispatchers.Unconfined ) {
-            val rowInstructions = EdSystemMetaLite.cache.map { it.needReify j it.path.toList().toJsPath }
+            val process = ProcessBuilder(
+                "/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", """
+    ${if (curl) "curl" else "cat"} "$prefix/$fname" |gztool  -z -b0 -I $gziFname  
+    """.trimIndent()
+            )
+                //grab stdio but nullify stderr
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
+
+            //use the output of gztool to provide linescanner some input to work with
+
+
             val datafilename = "$tmpdir/$isamName"
 
             val rowMeta: Series<ColumnMeta> = EdSystemMetaLite.cache.map { (it.name j it.typeMemento) }.toSeries()
-            val metashadow = rowMeta.map { (it.first j it.second).`↺` }
             val readLogger = FibonacciReporter(noun = "systems")
-            while (true) {
-                if (Files.exists(Paths.get(fifoname))) {
-                    println("datafile exists: $datafilename")
-                    break
-                } else {
-                    println("waiting for datafile: $datafilename")
-                    delay(1000)
+
+            var timer: Duration = Duration.ZERO
+            var avail = 0L
+            var minAvail = Int.MAX_VALUE
+            var maxAvail = Int.MIN_VALUE
+            var minlineLength = Int.MAX_VALUE
+            var maxlineLength = Int.MIN_VALUE
+            var loops = 0L
+            var reads = 0L
+            var EOLs = 0
+            var lineOffset = 0L
+            val accum = mutableListOf<BFrag>()
+
+            fun drainAccum(tail: BFrag? = null): ByteArray {
+
+                val ret = ByteArray((tail?.size ?: 0) + accum.sumOf(BFrag::size))
+                var offset = 0
+                for (accumNext in accum) {
+                    val (bounds, buf) = accumNext
+                    val (beg, end) = bounds
+                    accumNext.copyInto(ret, offset)
+                    offset += accumNext.size
                 }
+
+                accum.clear()
+                if (tail != null) {
+                    val (beg, end) = tail.a
+                    tail.b.copyInto(ret, offset, beg, end)
+                }
+                //update min/max linelength
+                if (ret.size > maxlineLength) maxlineLength = ret.size
+                if (ret.size < minlineLength) minlineLength = ret.size
+//                debug { !ByteSeries(ret).seekTo(0x0) && ByteSeries(ret).seekTo('\n'.code.toByte()) }
+                EOLs++
+                return ret
             }
 
-            val iterateLines = iterateLines(fifoname,156 )
-            //print the line to stdout
+            val lineSeq = sequence<Join<Long, ByteArray>> {
+                timer = measureTime {
+                    val eols = mutableListOf<Int>()
+                    val iss = process.inputStream
+                    var inputPos = 0L
+                    while (true) {
+                        val available = iss.available()
+                        loops++
+                        if (available > 0) {
 
-            val count = iterateLines.count()
-            println("counted $count lines")
+                            if (available > maxAvail) maxAvail = available
+                            if (available < minAvail) minAvail = available
+                            var buffer: ByteArray? = null
+                            var read: Int
+                            do {
+                                buffer = buffer ?: ByteArray(available)
+                                read = iss.read(buffer)
+                                if (0 == read) {
+                                    (loops++);continue
+                                } else break
+                            } while (true)
+                            reads++
+                            avail += available
+                            var active: BFrag? = 0 j read j buffer!!
+                            do active = try {
+                                active!!.split1('\n'.code.toByte()).let { (line, tail) ->
+                                    line?.let {
+                                        yield(lineOffset j drainAccum(it))
+                                        lineOffset += it.size
+                                        tail
+                                    } ?: let { accum += tail!!;null }
+                                }
+                            } catch (e: Exception) {
+                                 debug { logDebug { "$e @ $lineOffset at EOLs $EOLs " } }
+                                null
+                            } while (active != null)
+                        } else if (!process.isAlive) {
+                            drainAccum().takeIf { it.isNotEmpty() }?.also { yield(lineOffset j it) }
+                            break
+                        }
+                    }
+                    process.waitFor()
+                    println("\n-----------\navg avail: ${avail.toFloat() / reads}")
+                    println("min avail: $minAvail")
+                    println("max avail: $maxAvail")
+                    println("excess loops:  (${loops}/$reads)  ${loops - reads} (${(loops - reads) / reads}%)")
+                    println("EOLs: ${EOLs}")
+                    println("throughput ${(lineOffset.toDouble() / timer.inWholeSeconds ).toLong().humanReadableByteCountIEC} bytes/sec")
+                    //min and max line lengths
+                    println("min line length: $minlineLength")
+                    println("max line length: $maxlineLength")
+                    //show the loops and reads/loops ratio and bytesIEC/read ratio
+                    println("loops: $loops  reads: $reads  loops/read=${loops.toFloat() / reads.toFloat()}  bytes/read=${(lineOffset.toFloat() / reads.toFloat()).toLong().humanReadableByteCountIEC}")
 
+                    process.exitValue().run {
+                        //if the process completed successfully move the gz index and isam to the data dir
+                        if (this == 0) {
+                            val gziFile = File("$tmpdir/$gziFname")
+                            val isamFile = File("$tmpdir/$isamName")
+                            if (gziFile.exists() && isamFile.exists()) {
+                                gziFile.copyTo(File("$dataDir/$gziFname"), true)
+                                isamFile.copyTo(File("$dataDir/$isamName"), true)
+                            }
+                        }
+                    }
+                    //print the stats for avail avg, excess loops as a percentage of reads, and total reads
+                }
+                println(" time taken to process: $timer")
+            }
+            val bigHeapHit = lineSeq.toList()
+            println("lines returned is ${bigHeapHit.count()}")
+            val rejects = (bigHeapHit.withIndex().asIterable() where { (ix, v) -> v.b.size <= 6 }).map { (ix, v) ->
+                "$ix : ${v.a}: ${
+                    (v.b).decodeToString().replace("\t", "T").replace("\r", "R").replace("\n", "N")
+                        .replace("" + 0.toChar(), "0")
+                }"
+            }
+
+
+            println("the non-viable line counts are ${rejects.count()}")
+            for (c in rejects) {
+                println(c)
+            }
         }
-        joinAll()
     }
 }
-
-
-//            val lineIterable = iterateLines where { (_: Long, buf: Series<Byte>) -> buf.size > 3 }
-//
-//
-//
-//            val rowVecIterator: Iterable<RowVec> = lineIterable select { (offset, buf: Series<Byte>) ->
-//                ByteSeries(buf).trim.decodeUtf8().let { chBuf ->
-//                    (JsonParser.index(chBuf, takeFirst = 3) j chBuf).let { jsContext: JsContext ->
-//                        val watermark = offset
-//                        rowInstructions.mapIndexed { x, (reifyMe, jsPath) ->
-//                            when (x) {
-//                                0 -> watermark j rowMeta[x]
-//                                else -> {
-//                                    JsonParser.jsPath(jsContext, jsPath, reifyMe).let { jse ->
-//                                        if (reifyMe) jse
-//                                        else when (rowMeta[x].second) {
-//                                            IoDouble -> (jse as Series<Char>).parseDouble()
-//                                            IoLong -> (jse as Series<Char>).parseLong()
-//                                            IoCharSeries -> {
-//                                                var cs = CharSeries(jse as Series<Char>)
-//                                                if (cs.seekTo('"')) {
-//                                                    cs = cs.slice
-//                                                    if (cs.seekTo('"', '\\'))
-//                                                        cs.flip()
-//                                                    else TODO("trashed quote content charseries in path $jsPath")
-//                                                }
-//                                                cs.trim
-//                                            }
-//
-//                                            else -> {
-//                                                println("unhandled type ${rowMeta[x].second} in path $jsPath")
-//                                                (jse as Series<Char>).asString()
-//                                            }
-//                                        }
-//                                    }
-//                                }
-//                            } j metashadow[x]
-//
-//                        }.toSeries().also {
-//                            readLogger.report()
-//                        }
-//                    }
-//                }
-//            }
-//            rowVecIterator.forEach({ println(it) })
-//
-//            IsamDataFile.append(rowVecIterator, datafilename, IndexWeeklyGalaxyDump.varchars)
-//        }
-//    joinAll()
-//    }
-//
-//
-////    process.waitFor()
-//    tmpdir?.toFile()?.deleteRecursively()
-//    println("done")
-//
-//}
-//
-//
-//
