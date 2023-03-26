@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentSkipListMap
 import kotlin.time.Duration
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
+import kotlin.time.toJavaDuration
 
 
 enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) {
@@ -132,7 +133,7 @@ fun main(args: Array<String>) {
 
             val rowMeta: Series<ColumnMeta> = EdSystemMetaLite.cache.map { (it.name j it.typeMemento) }.toSeries()
             val readLogger = FibonacciReporter(noun = "systems")
-
+            var bytesRead=0L
             var timer: Duration = Duration.ZERO
             var avail = 0L
             var minAvail = Int.MAX_VALUE
@@ -173,9 +174,11 @@ fun main(args: Array<String>) {
                 }
                 //update min/max linelength
                 if (ret.size > maxlineLength) maxlineLength = ret.size
-                if (ret.size < minlineLength) minlineLength = ret.size
-
-                return ByteSeries(ret)
+                if (ret.size < minlineLength) {
+                    minlineLength = ret.size
+                    if(minlineLength == 0) println("zero byte line at offset $lineOffset line# $EOLs")
+                }
+                return ByteSeries(ret, 0, needed)
             }
 
             val lineSeq = sequence {
@@ -204,14 +207,16 @@ fun main(args: Array<String>) {
                             reads++
                             avail += available
                             var active: BFrag? = 0 j read j buffer!!
+                            bytesRead += read
                             do active = try {
                                 assert(active != null)
                                 active!!.split1('\n'.code.toByte()).let { (line, tail): Twin<BFrag?> ->
                                     if (line != null) line.let { terminal ->
                                         EOLs++
+                                        val byteSeries = drainAccum(terminal)
+                                        yield(lineOffset j byteSeries)
+                                        lineOffset += byteSeries.rem//aining
                                         readLogger.report()?.let(::println)
-                                        yield(lineOffset j drainAccum(terminal))
-                                        lineOffset += terminal.size
                                         tail
                                     } else let {
                                         kotlin.assert(tail != null)
@@ -225,41 +230,43 @@ fun main(args: Array<String>) {
                                 null
                             } while (active != null)
                         } else if (!process.isAlive) {
-                            drainAccum().takeIf { it.isNotEmpty() }?.also { yield(lineOffset j it) }
+                            drainAccum().takeIf { it.hasRemaining }?.also { yield(lineOffset j it) }
                             break
                         }
                     }
                     process.waitFor()
-                }
-                val timer2 = timer
-                println(" time taken to process: $timer2")
-                println("\n-----------\navg avail: ${avail.toFloat() / reads}")
-                println("min avail: $minAvail")
-                println("max avail: $maxAvail")
-                println("EOLs: ${EOLs}")
-                println("throughput $lineOffset bytes in ${timer2.inWholeSeconds}s ${(lineOffset / timer2.inWholeSeconds.toDouble()).toLong().humanReadableByteCountIEC} bytes/sec")
-                //min and max line lengths
-                println("min line length: $minlineLength")
-                println("max line length: ${maxlineLength.toLong().humanReadableByteCountIEC}")
-                //show the loops and reads/loops ratio and bytesIEC/read ratio
-                println("loops: $loops  reads: $reads  loops/read=${loops.toFloat() / reads.toFloat()}  bytes/read=${(lineOffset.toFloat() / reads.toFloat()).toLong().humanReadableByteCountIEC}")
+                }.also {
+                    val timer2 = it
+                    println("throughput ${lineOffset.humanReadableByteCountIEC} in ${timer2.toJavaDuration().toSeconds()}s ${(lineOffset / timer2.inWholeSeconds.toDouble()).toLong().humanReadableByteCountIEC} bytes/sec")
+                    println(" time taken to process: $timer2")
+                    println("\n-----------\navg avail: ${avail.toFloat() / reads}")
+                    println("min avail: $minAvail")
+                    println("max avail: $maxAvail")
+                    println("EOLs: ${EOLs}")
+                    //min and max line lengths
+                    println("min line length: $minlineLength")
+                    println("max line length: ${maxlineLength.toLong().humanReadableByteCountIEC}")
+                    //show the loops and reads/loops ratio and bytesIEC/read ratio
+                    println("loops: $loops  reads: $reads  loops/read=${loops.toFloat() / reads.toFloat()}  bytes/read=${(lineOffset.toFloat() / reads.toFloat()).toLong().humanReadableByteCountIEC}")
+                    //print bytesRead
+                    println("bytes read: ${bytesRead.humanReadableByteCountIEC}")
 
-                process.exitValue().run {
-                    //if the process completed successfully move the gz index and isam to the data dir
-                    if (this == 0) {
-                        val gziFile = File("$tmpdir/$gziFname")
-                        val isamFile = File("$tmpdir/$isamName")
-                        if (gziFile.exists() && isamFile.exists()) {
-                            gziFile.copyTo(File("$dataDir/$gziFname"), true)
-                            isamFile.copyTo(File("$dataDir/$isamName"), true)
+                    process.exitValue().run {
+                        //if the process completed successfully move the gz index and isam to the data dir
+                        if (this == 0) {
+                            val gziFile = File("$tmpdir/$gziFname")
+                            val isamFile = File("$tmpdir/$isamName")
+                            if (gziFile.exists() && isamFile.exists()) {
+                                gziFile.copyTo(File("$dataDir/$gziFname"), true)
+                                isamFile.copyTo(File("$dataDir/$isamName"), true)
+                            }
                         }
                     }
                 }
                 //print the stats for avail avg, excess loops as a percentage of reads, and total reads
             }
-            val bigHeapHit = lineSeq
-            println("lines returned is ${bigHeapHit.count()}")
-            val rejects = (bigHeapHit.withIndex().asIterable() where { (ix, v) -> v.b.size <= 6 }).map { (ix, v) ->
+            /*println("lines returned is ${lineSeq.count()}")*/
+            val rejects = (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size <= 6 }).map { (ix, v) ->
                 "$ix : ${v.a}: ${
                     (v.b).decodeToString().replace("\t", "T").replace("\r", "R").replace("\n", "N")
                         .replace("" + 0.toChar(), "0")
