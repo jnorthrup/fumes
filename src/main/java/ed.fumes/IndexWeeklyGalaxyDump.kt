@@ -2,16 +2,11 @@
 
 package ed.fumes
 
-import borg.trikeshed.common.BFrag
 import borg.trikeshed.common.collections._s
-import borg.trikeshed.common.size
-import borg.trikeshed.common.split1
 import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
-import ed.fumes.BlockRecycler.recycleFrom
-import ed.fumes.BlockRecycler.recycleTo
 import ed.fumes.EdSystemMetaLite.Companion.cache
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -19,11 +14,7 @@ import java.io.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
-import java.util.concurrent.ConcurrentSkipListMap
-import kotlin.time.Duration
 import kotlin.time.ExperimentalTime
-import kotlin.time.measureTime
-import kotlin.time.toJavaDuration
 
 
 enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) {
@@ -128,150 +119,25 @@ fun main(args: Array<String>) {
 
             //use the output of gztool to provide linescanner some input to work with
 
-
-            val datafilename = "$tmpdir/$isamName"
-
-            val rowMeta: Series<ColumnMeta> = EdSystemMetaLite.cache.map { (it.name j it.typeMemento) }.toSeries()
-            val readLogger = FibonacciReporter(noun = "systems")
-            var bytesRead=0L
-            var timer: Duration = Duration.ZERO
-            var avail = 0L
-            var minAvail = Int.MAX_VALUE
-            var maxAvail = Int.MIN_VALUE
-            var minlineLength = Int.MAX_VALUE
-            var maxlineLength = Int.MIN_VALUE
-            var loops = 0L
-            var reads = 0L
-            var EOLs = 0
-            var lineOffset = 0L
-            val accum = mutableListOf<BFrag>()
-
-            //java ranked buckets of byte[] by size for reuse
-            val fragHeap = ConcurrentSkipListMap<Int, MutableSet<ByteArray>>()
-
-            fun drainAccum(tail: BFrag? = null): ByteSeries {
-                val needed = (tail?.size ?: 0) + accum.sumOf(BFrag::size)
-                val ret = recycleFrom(needed, false)
-                assert(ret.size >= needed)
-                var offset = 0
-                for (accumNext in accum) {
-//                    val (bounds, buf) = accumNext
-//                    val (beg, end) = bounds
-                    val (bounds, buf) = accumNext
-                    val (beg, end) = bounds
-                    buf.copyInto(ret, offset, beg, end)
-                    offset += accumNext.size
-                }
-
-                accum.map { (_, buf) -> buf }.distinct().filter { it ->
-                    val bytes: ByteArray? = tail?.b
-                    it.size > 1 && it !== bytes
-                }.forEach(::recycleTo)
-                accum.clear()
-                if (tail != null) {
-                    val (beg, end) = tail.a
-                    tail.b.copyInto(ret, offset, beg, end)
-                }
-                //update min/max linelength
-                if (ret.size > maxlineLength) maxlineLength = ret.size
-                if (ret.size < minlineLength) {
-                    minlineLength = ret.size
-                    if(minlineLength == 0) println("zero byte line at offset $lineOffset line# $EOLs")
-                }
-                return ByteSeries(ret, 0, needed)
-            }
-
-            val lineSeq = sequence {
-                timer = measureTime {
-                    val eols = mutableListOf<Int>()
-                    val iss = process.inputStream
-                    var inputPos = 0L
-                    while (true) {
-                        val available = iss.available()
-                        loops++
-                        if (available > 0) {
-
-                            if (available > maxAvail) maxAvail = available
-                            if (available < minAvail) minAvail = available
-                            var buffer: ByteArray? = null
-                            var read: Int
-                            do {
-                                //the "trivial" recycling of the size or next largest buffer from the CSLM
-                                buffer = buffer ?: recycleFrom(available, true)
-
-                                read = iss.read(buffer)
-                                if (0 == read) {
-                                    (loops++);continue
-                                } else break
-                            } while (true)
-                            reads++
-                            avail += available
-                            var active: BFrag? = 0 j read j buffer!!
-                            bytesRead += read
-                            do active = try {
-                                assert(active != null)
-                                active!!.split1('\n'.code.toByte()).let { (line, tail): Twin<BFrag?> ->
-                                    if (line != null) line.let { terminal ->
-                                        EOLs++
-                                        val byteSeries = drainAccum(terminal)
-                                        yield(lineOffset j byteSeries)
-                                        lineOffset += byteSeries.rem//aining
-                                        readLogger.report()?.let(::println)
-                                        tail
-                                    } else let {
-                                        kotlin.assert(tail != null)
-                                        accum += tail!!
-                                        null
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                debug { logDebug { "$e @ $lineOffset at EOLs $EOLs " } }
-                                null
-                            } while (active != null)
-                        } else if (!process.isAlive) {
-                            drainAccum().takeIf { it.hasRemaining }?.also { yield(lineOffset j it) }
-                            break
-                        }
-                    }
-                    process.waitFor()
-                }.also {
-                    val timer2 = it
-                    println("throughput ${lineOffset.humanReadableByteCountIEC} in ${timer2.toJavaDuration().toSeconds()}s ${(lineOffset / timer2.inWholeSeconds.toDouble()).toLong().humanReadableByteCountIEC} bytes/sec")
-                    println(" time taken to process: $timer2")
-                    println("\n-----------\navg avail: ${avail.toFloat() / reads}")
-                    println("min avail: $minAvail")
-                    println("max avail: $maxAvail")
-                    println("EOLs: ${EOLs}")
-                    //min and max line lengths
-                    println("min line length: $minlineLength")
-                    println("max line length: ${maxlineLength.toLong().humanReadableByteCountIEC}")
-                    //show the loops and reads/loops ratio and bytesIEC/read ratio
-                    println("loops: $loops  reads: $reads  loops/read=${loops.toFloat() / reads.toFloat()}  bytes/read=${(lineOffset.toFloat() / reads.toFloat()).toLong().humanReadableByteCountIEC}")
-                    //print bytesRead
-                    println("bytes read: ${bytesRead.humanReadableByteCountIEC}")
-
-                    process.exitValue().run {
-                        //if the process completed successfully move the gz index and isam to the data dir
-                        if (this == 0) {
-                            val gziFile = File("$tmpdir/$gziFname")
-                            val isamFile = File("$tmpdir/$isamName")
-                            if (gziFile.exists() && isamFile.exists()) {
-                                gziFile.copyTo(File("$dataDir/$gziFname"), true)
-                                isamFile.copyTo(File("$dataDir/$isamName"), true)
-                            }
-                        }
-                    }
-                }
-                //print the stats for avail avg, excess loops as a percentage of reads, and total reads
-            }
-            /*println("lines returned is ${lineSeq.count()}")*/
+            val lineSeq = nonBlockingLineReader(process.inputStream) { process.isAlive }
             val rejects = (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size <= 6 }).map { (ix, v) ->
                 "$ix : ${v.a}: ${
                     (v.b).decodeToString().replace("\t", "T").replace("\r", "R").replace("\n", "N")
                         .replace("" + 0.toChar(), "0")
                 }"
             }
+            process.exitValue().run {
+                //if the process completed successfully move the gz index and isam to the data dir
+                if (this == 0) {
+                    val gziFile = File("$tmpdir/$gziFname")
+                    val isamFile = File("$tmpdir/$isamName")
+                    if (gziFile.exists() && isamFile.exists()) {
+                        gziFile.copyTo(File("$dataDir/$gziFname"), true)
+                        isamFile.copyTo(File("$dataDir/$isamName"), true)
+                    }
+                }
+            }
+            /*println("lines returned is ${lineSeq.count()}")*/
             println("the non-viable line counts are ${rejects.count()}")
             for (c in rejects) {
                 println(c)
@@ -281,30 +147,3 @@ fun main(args: Array<String>) {
 }
 
 
-object BlockRecycler {
-    const val blocksize = 4096
-    val disabled: Boolean = (System.getProperty("DISABLE_BLOCKCACHE") == "true").apply {
-        System.err.println("block cache is ${if (this) "disabled" else "enabled"}")
-    }
-
-    //java ranked buckets of byte[] by size for reuse
-    val theHeap = ConcurrentSkipListMap<Int, MutableSet<ByteArray>>()
-    fun recycleTo(buffer: ByteArray): Unit {
-        if (disabled) return
-        val key = (buffer.size + blocksize - 1) / blocksize * blocksize
-        theHeap.getOrPut(key, ::mutableSetOf).add(buffer)
-    }
-
-    fun recycleFrom(available: Int, alignedOnly: Boolean = false): ByteArray {
-        if (disabled) return ByteArray(available)
-        val newkey: Int = (available + blocksize - 1) / blocksize * blocksize
-        return theHeap.tailMap(newkey, true).let { cnm ->
-            cnm.values.firstOrNull { it.isNotEmpty() }?.let {
-                val iterator = it.iterator()
-                val next = iterator.next()
-                iterator.remove()
-                next
-            } ?: ByteArray(if (alignedOnly) newkey else available)
-        }
-    }
-}
