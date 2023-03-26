@@ -10,8 +10,8 @@ import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
-import ed.fumes.BarrRecycler.recycleFrom
-import ed.fumes.BarrRecycler.recycleTo
+import ed.fumes.BlockRecycler.recycleFrom
+import ed.fumes.BlockRecycler.recycleTo
 import ed.fumes.EdSystemMetaLite.Companion.cache
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -265,8 +265,6 @@ fun main(args: Array<String>) {
                         .replace("" + 0.toChar(), "0")
                 }"
             }
-
-
             println("the non-viable line counts are ${rejects.count()}")
             for (c in rejects) {
                 println(c)
@@ -276,20 +274,23 @@ fun main(args: Array<String>) {
 }
 
 
-object BarrRecycler {
+object BlockRecycler {
     const val blocksize = 4096
+    val disabled: Boolean = (System.getProperty("DISABLE_BLOCKCACHE") == "true").apply {
+        System.err.println("block cache is ${if (this) "disabled" else "enabled"}")
+    }
 
     //java ranked buckets of byte[] by size for reuse
-    private val theHeap = ConcurrentSkipListMap<Int, MutableSet<ByteArray>>()
-
-    fun recycleTo(buffer: ByteArray) {
+    val theHeap = ConcurrentSkipListMap<Int, MutableSet<ByteArray>>()
+    fun recycleTo(buffer: ByteArray): Unit {
+        if (disabled) return
         val key = (buffer.size + blocksize - 1) / blocksize * blocksize
         theHeap.getOrPut(key, ::mutableSetOf).add(buffer)
     }
 
     fun recycleFrom(available: Int, alignedOnly: Boolean = false): ByteArray {
-        val newkey = (available + blocksize - 1) / blocksize * blocksize
-
+        if (disabled) return ByteArray(available)
+        val newkey: Int = (available + blocksize - 1) / blocksize * blocksize
         return theHeap.tailMap(newkey, true).let { cnm ->
             cnm.values.firstOrNull { it.isNotEmpty() }?.let {
                 val iterator = it.iterator()
