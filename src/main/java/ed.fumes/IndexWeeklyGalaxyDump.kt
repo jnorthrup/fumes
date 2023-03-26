@@ -7,7 +7,8 @@ import borg.trikeshed.cursor.*
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
-import ed.fumes.EdSystemMetaLite.Companion.cache
+import ed.fumes.EdSystemMetaLite.*
+import ed.fumes.EdSystemMetaLite.Companion.meta
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.*
@@ -21,9 +22,11 @@ enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) 
     Seek(IoULong),
     Id64(IoULong, 0),
     Name(IoCharSeries, 1),
-    X(IoDouble, 2, 0),
-    Y(IoDouble, 2, 1),
-    Z(IoDouble, 2, 2),
+
+    //paths done below for shaking out the bugs
+    X(IoDouble, 2, "x"),
+    Y(IoDouble, "coords", 1),
+    Z(IoDouble, "coords", "z"),
     ;
 
     // @Spansh: If you were really interested in reducing size you could reduce the double to float, or even use fixed point integers (which is what the game actually uses), I think those are 32bit and the actual coordinate multiplied by 128 (and with an offset as well).
@@ -33,7 +36,13 @@ enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) 
     val needReify by lazy { this.typeMemento in _s[IoDouble, IoBoolean, IoNothing] }
 
     companion object {
-        val cache = EdSystemMetaLite.values()
+        val varchars = mapOf(Name.name to 64)
+        val meta: Series<ColumnMeta> by lazy {
+            (cache α { (it.name j it.typeMemento) }).debug {
+                println("galaxy coordinates schema: " + it.map(Join<*, *>::pair))
+            }
+        }
+        val cache = values()
     }
 }
 
@@ -75,14 +84,7 @@ enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) 
  *
  * @see [...](https://www.reddit.com/r/EliteDangerous/comments/hvuwb6/galmap_starnaming_from_id64/)
  */
-object IndexWeeklyGalaxyDump {
-    val varchars = mapOf(EdSystemMetaLite.Name.name to 64)
-    val meta by lazy {
-        (cache α { (it.name j it.typeMemento) }).debug {
-            println("galaxy coordinates schema: " + it.map(Join<*, *>::pair))
-        }
-    }
-}
+object IndexWeeklyGalaxyDump
 
 
 @OptIn(ExperimentalTime::class)
@@ -118,30 +120,54 @@ fun main(args: Array<String>) {
 
             //use the output of gztool to provide linescanner some input to work with
             val lineSeq = nonBlockingLineReader(process.inputStream) { process.isAlive }
-            val rejects = (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size <= 6 }).map { (ix, v) ->
-                "$ix : ${v.a}: ${
-                    (v.b).decodeToString().replace("\t", "T").replace("\r", "R").replace("\n", "N")
-                        .replace("" + 0.toChar(), "0")
-                }"
-            }
-            process.exitValue().run {
-                //if the process completed successfully move the gz index and isam to the data dir
-                if (this == 0) {
-                    val gziFile = File("$tmpdir/$gziFname")
-                    val isamFile = File("$tmpdir/$isamName")
-                    if (gziFile.exists() && isamFile.exists()) {
-                        gziFile.copyTo(File("$dataDir/$gziFname"), true)
-                        isamFile.copyTo(File("$dataDir/$isamName"), true)
-                    }
+
+
+            val nonRejects =
+                val rows=               (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size >= 6 }) α { (lineIndex, join) ->
+                    val (lineOffset1, line1) = join
+
+                    val src = (line1).decodeUtf8()
+                    val jsElement = JsonParser.index(src, takeFirst = 3)
+                    val jsContext = JsContext(jsElement, src)
+
+
+                    val size1 = EdSystemMetaLite.cache.size
+                    val rowVec:RowVec= size1 j { it:Int->
+                       when (it) {
+                            0 -> lineOffset1
+                            1 -> {
+                                val segment: JsIndex = (JsonParser.jsPath(jsContext, Id64.path, false) as? JsIndex)!!
+                                val (segOpenIdx, segCloseIdx) = segment.first
+                                val src0 = CharSeries(src).lim(segCloseIdx).pos(segOpenIdx)
+                                src0.parseLong().toULong()
+                            }
+
+                            2 -> {
+                                val segment: JsIndex = (JsonParser.jsPath(jsContext, Name.path, false) as? JsIndex)!!
+                                val (segOpenIdx, segCloseIdx) = segment.first
+                                CharSeries(src).lim(segCloseIdx).pos(segOpenIdx).unquote
+                            }
+
+                            else -> JsonParser.jsPath(jsContext, EdSystemMetaLite.cache[it].path, true)
+                        } j { meta[it] }}
+
+
+
+        }
+
+        process.exitValue().run {
+            //if the process completed successfully move the gz index and isam to the data dir
+            if (this == 0) {
+                val gziFile = File("$tmpdir/$gziFname")
+                val isamFile = File("$tmpdir/$isamName")
+                if (gziFile.exists() && isamFile.exists()) {
+                    gziFile.copyTo(File("$dataDir/$gziFname"), true)
+                    isamFile.copyTo(File("$dataDir/$isamName"), true)
                 }
-            }
-            /*println("lines returned is ${lineSeq.count()}")*/
-            println("the non-viable line counts are ${rejects.count()}")
-            for (c in rejects) {
-                println(c)
             }
         }
     }
 }
+
 
 
