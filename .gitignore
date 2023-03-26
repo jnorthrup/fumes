@@ -6,4 +6,5 @@ target
 data/
 *.iml
 *.ipr
-/*.gzi
+*.gzi
+*.log

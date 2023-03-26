@@ -4,7 +4,6 @@ package ed.fumes
 
 import borg.trikeshed.common.BFrag
 import borg.trikeshed.common.collections._s
-import borg.trikeshed.common.copyInto
 import borg.trikeshed.common.size
 import borg.trikeshed.common.split1
 import borg.trikeshed.cursor.*
@@ -21,7 +20,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.*
 import java.util.concurrent.ConcurrentSkipListMap
-import kotlin.math.max
 import kotlin.time.Duration
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
@@ -119,13 +117,13 @@ fun main(args: Array<String>) {
     runBlocking {
         val procJob = launch {
             val process = ProcessBuilder(
-                    "/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", """
+                "/usr/bin/taskset", "-c", "12-15", "/bin/bash", "-c", """
     ${if (curl) "curl" else "cat"} "$prefix/$fname" |gztool  -z -b0 -I $gziFname  
     """.trimIndent()
             )
-                    //grab stdio but nullify stderr
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                    .start()
+                //grab stdio but nullify stderr
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
 
             //use the output of gztool to provide linescanner some input to work with
 
@@ -150,14 +148,17 @@ fun main(args: Array<String>) {
             //java ranked buckets of byte[] by size for reuse
             val fragHeap = ConcurrentSkipListMap<Int, MutableSet<ByteArray>>()
 
-            fun drainAccum(tail: BFrag? = null): ByteArray {
+            fun drainAccum(tail: BFrag? = null): ByteSeries {
                 val needed = (tail?.size ?: 0) + accum.sumOf(BFrag::size)
-                val ret = ByteArray(needed)// recycleFrom(needed).sliceArray(0 until needed)
+                val ret = recycleFrom(needed, false)
+                assert(ret.size >= needed)
                 var offset = 0
                 for (accumNext in accum) {
+//                    val (bounds, buf) = accumNext
+//                    val (beg, end) = bounds
                     val (bounds, buf) = accumNext
                     val (beg, end) = bounds
-                    accumNext.copyInto(ret, offset)
+                    buf.copyInto(ret, offset, beg, end)
                     offset += accumNext.size
                 }
 
@@ -174,10 +175,10 @@ fun main(args: Array<String>) {
                 if (ret.size > maxlineLength) maxlineLength = ret.size
                 if (ret.size < minlineLength) minlineLength = ret.size
 
-                return ret
+                return ByteSeries(ret)
             }
 
-            val lineSeq = sequence<Join<Long, ByteArray>> {
+            val lineSeq = sequence {
                 timer = measureTime {
                     val eols = mutableListOf<Int>()
                     val iss = process.inputStream
@@ -193,7 +194,7 @@ fun main(args: Array<String>) {
                             var read: Int
                             do {
                                 //the "trivial" recycling of the size or next largest buffer from the CSLM
-                                buffer = buffer ?: recycleFrom(available)
+                                buffer = buffer ?: recycleFrom(available, true)
 
                                 read = iss.read(buffer)
                                 if (0 == read) {
@@ -208,7 +209,7 @@ fun main(args: Array<String>) {
                                 active!!.split1('\n'.code.toByte()).let { (line, tail): Twin<BFrag?> ->
                                     if (line != null) line.let { terminal ->
                                         EOLs++
-                                         readLogger.report()?.let(::println)
+                                        readLogger.report()?.let(::println)
                                         yield(lineOffset j drainAccum(terminal))
                                         lineOffset += terminal.size
                                         tail
@@ -219,6 +220,7 @@ fun main(args: Array<String>) {
                                     }
                                 }
                             } catch (e: Exception) {
+                                e.printStackTrace()
                                 debug { logDebug { "$e @ $lineOffset at EOLs $EOLs " } }
                                 null
                             } while (active != null)
@@ -229,13 +231,13 @@ fun main(args: Array<String>) {
                     }
                     process.waitFor()
                 }
-
-                println(" time taken to process: $timer")
+                val timer2 = timer
+                println(" time taken to process: $timer2")
                 println("\n-----------\navg avail: ${avail.toFloat() / reads}")
                 println("min avail: $minAvail")
                 println("max avail: $maxAvail")
                 println("EOLs: ${EOLs}")
-                println("throughput $lineOffset bytes in ${timer.inWholeSeconds}s ${(lineOffset/ timer.inWholeSeconds.toDouble()).toLong().humanReadableByteCountIEC} bytes/sec")
+                println("throughput $lineOffset bytes in ${timer2.inWholeSeconds}s ${(lineOffset / timer2.inWholeSeconds.toDouble()).toLong().humanReadableByteCountIEC} bytes/sec")
                 //min and max line lengths
                 println("min line length: $minlineLength")
                 println("max line length: ${maxlineLength.toLong().humanReadableByteCountIEC}")
@@ -281,19 +283,20 @@ object BarrRecycler {
     private val theHeap = ConcurrentSkipListMap<Int, MutableSet<ByteArray>>()
 
     fun recycleTo(buffer: ByteArray) {
-        val key = max(1, buffer.size / blocksize) * blocksize
-        theHeap.getOrPut<Int, MutableSet<ByteArray>>(key, ::mutableSetOf).add(buffer)
+        val key = (buffer.size + blocksize - 1) / blocksize * blocksize
+        theHeap.getOrPut(key, ::mutableSetOf).add(buffer)
     }
 
-    fun recycleFrom(available: Int): ByteArray {
-        val newkey: Int = (max(1, available / blocksize) * blocksize)
+    fun recycleFrom(available: Int, alignedOnly: Boolean = false): ByteArray {
+        val newkey = (available + blocksize - 1) / blocksize * blocksize
+
         return theHeap.tailMap(newkey, true).let { cnm ->
             cnm.values.firstOrNull { it.isNotEmpty() }?.let {
                 val iterator = it.iterator()
                 val next = iterator.next()
                 iterator.remove()
                 next
-            } ?: ByteArray(newkey)
+            } ?: ByteArray(if (alignedOnly) newkey else available)
         }
     }
 }
