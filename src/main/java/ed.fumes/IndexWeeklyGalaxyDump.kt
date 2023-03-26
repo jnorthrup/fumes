@@ -4,11 +4,14 @@ package ed.fumes
 
 import borg.trikeshed.common.collections._s
 import borg.trikeshed.cursor.*
+import borg.trikeshed.isam.IsamDataFile
+import borg.trikeshed.isam.IsamDataFile.Companion.append
 import borg.trikeshed.isam.meta.IOMemento.*
 import borg.trikeshed.lib.*
 import borg.trikeshed.parse.*
 import ed.fumes.EdSystemMetaLite.*
 import ed.fumes.EdSystemMetaLite.Companion.meta
+import ed.fumes.EdSystemMetaLite.Companion.varchars
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.*
@@ -122,47 +125,48 @@ fun main(args: Array<String>) {
             val lineSeq = nonBlockingLineReader(process.inputStream) { process.isAlive }
 
 
-            val nonRejects =
-                val rows=               (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size >= 6 }) α { (lineIndex, join) ->
-                    val (lineOffset1, line1) = join
+            val rows = (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size >= 6 }) α { (lineIndex, join) ->
+                val (lineOffset1, line1) = join
 
-                    val src = (line1).decodeUtf8()
-                    val jsElement = JsonParser.index(src, takeFirst = 3)
-                    val jsContext = JsContext(jsElement, src)
-
-
-                    val size1 = EdSystemMetaLite.cache.size
-                    val rowVec:RowVec= size1 j { it:Int->
-                       when (it) {
-                            0 -> lineOffset1
-                            1 -> {
-                                val segment: JsIndex = (JsonParser.jsPath(jsContext, Id64.path, false) as? JsIndex)!!
-                                val (segOpenIdx, segCloseIdx) = segment.first
-                                val src0 = CharSeries(src).lim(segCloseIdx).pos(segOpenIdx)
-                                src0.parseLong().toULong()
-                            }
-
-                            2 -> {
-                                val segment: JsIndex = (JsonParser.jsPath(jsContext, Name.path, false) as? JsIndex)!!
-                                val (segOpenIdx, segCloseIdx) = segment.first
-                                CharSeries(src).lim(segCloseIdx).pos(segOpenIdx).unquote
-                            }
-
-                            else -> JsonParser.jsPath(jsContext, EdSystemMetaLite.cache[it].path, true)
-                        } j { meta[it] }}
+                val src = (line1).decodeUtf8()
+                val jsElement = JsonParser.index(src, takeFirst = 3)
+                val jsContext = JsContext(jsElement, src)
 
 
+                val size1 = EdSystemMetaLite.cache.size
+                val rowVec: RowVec = size1 j { it: Int ->
+                    when (it) {
+                        0 -> lineOffset1
+                        1 -> {
+                            val segment: JsIndex = (JsonParser.jsPath(jsContext, Id64.path, false) as? JsIndex)!!
+                            val (segOpenIdx, segCloseIdx) = segment.first
+                            val src0 = CharSeries(src).lim(segCloseIdx).pos(segOpenIdx)
+                            src0.parseLong().toULong()
+                        }
 
-        }
+                        2 -> {
+                            val segment: JsIndex = (JsonParser.jsPath(jsContext, Name.path, false) as? JsIndex)!!
+                            val (segOpenIdx, segCloseIdx) = segment.first
+                            CharSeries(src).lim(segCloseIdx).pos(segOpenIdx).unquote
+                        }
 
-        process.exitValue().run {
-            //if the process completed successfully move the gz index and isam to the data dir
-            if (this == 0) {
-                val gziFile = File("$tmpdir/$gziFname")
-                val isamFile = File("$tmpdir/$isamName")
-                if (gziFile.exists() && isamFile.exists()) {
-                    gziFile.copyTo(File("$dataDir/$gziFname"), true)
-                    isamFile.copyTo(File("$dataDir/$isamName"), true)
+                        else -> JsonParser.jsPath(jsContext, EdSystemMetaLite.cache[it].path, true)
+                    } j { meta[it] }
+                }
+                rowVec
+            }
+            append(rows, "$tmpdir/$isamName", varchars)
+
+
+            process.exitValue().run {
+                //if the process completed successfully move the gz index and isam to the data dir
+                if (this == 0) {
+                    val gziFile = File("$tmpdir/$gziFname")
+                    val isamFile = File("$tmpdir/$isamName")
+                    if (gziFile.exists() && isamFile.exists()) {
+                        gziFile.copyTo(File("$dataDir/$gziFname"), true)
+                        isamFile.copyTo(File("$dataDir/$isamName"), true)
+                    }
                 }
             }
         }
