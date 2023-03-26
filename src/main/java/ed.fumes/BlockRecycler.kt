@@ -13,18 +13,16 @@ object BlockRecycler {
     fun recycleTo(buffer: ByteArray): Unit {
         if (disabled) return
         val alignedKey = alignedCeiling(buffer.size)
-
-
         theHeap.getOrPut(alignedKey, ::mutableSetOf).add(buffer)
     }
 
     fun recycleFrom(minimum: Int, alignedOnly: Boolean = false): ByteArray {
         if (disabled) return ByteArray(minimum)
-        val alignedKey: Int = alignedCeiling(minimum)
-        return theHeap.tailMap(alignedKey, true).let { cnm ->
+        return theHeap.tailMap(minimum, true).let { cnm ->
             cnm.values.firstOrNull { it.isNotEmpty() }?.run {
                 iterator().run { next().also { remove() } }
-            } ?: ByteArray(if (alignedOnly) alignedKey else minimum)
+            } ?: ByteArray(if (alignedOnly)          alignedCeiling(minimum)
+            else minimum)
         }
     }
 

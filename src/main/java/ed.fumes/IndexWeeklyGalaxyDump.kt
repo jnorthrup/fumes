@@ -76,7 +76,6 @@ enum class EdSystemMetaLite(val typeMemento: TypeMemento, vararg pathKey: Any?) 
  * @see [...](https://www.reddit.com/r/EliteDangerous/comments/hvuwb6/galmap_starnaming_from_id64/)
  */
 object IndexWeeklyGalaxyDump {
-
     val varchars = mapOf(EdSystemMetaLite.Name.name to 64)
     val meta by lazy {
         (cache α { (it.name j it.typeMemento) }).debug {
@@ -118,7 +117,6 @@ fun main(args: Array<String>) {
                 .start()
 
             //use the output of gztool to provide linescanner some input to work with
-
             val lineSeq = nonBlockingLineReader(process.inputStream) { process.isAlive }
             val rejects = (lineSeq.withIndex().asIterable() where { (ix, v) -> v.b.size <= 6 }).map { (ix, v) ->
                 "$ix : ${v.a}: ${
