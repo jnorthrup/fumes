@@ -1,15 +1,10 @@
 package ed.fumes
 
-import borg.trikeshed.isam.meta.PlatformCodec.Companion.currentPlatformCodec.readInt
-import borg.trikeshed.isam.meta.PlatformCodec.Companion.currentPlatformCodec.readLong
 import borg.trikeshed.isam.meta.PlatformCodec.Companion.currentPlatformCodec.readULong
 import java.io.File
 import java.io.InputStream
-import java.nio.ByteBuffer
+import java.nio.ByteBuffer.wrap
 import java.nio.ByteOrder
-import java.nio.channels.FileChannel
-
-
 
 
 /** the first arg is mandatory, the second arg is optional.  first file is the index, second is the gzip file.  the default gzip file is the ending of the .gzi file to be the .gz filename.   `-` implies the inputstream is from stdin and causes an error if the gzip is not specified. the index is loaded into memory as an Access struct*/
@@ -18,10 +13,11 @@ fun main(args: Array<String>) {
     val gzipFile = args.getOrNull(1) ?: indexFile.substringBeforeLast(".gzi") + ".gz"
 
 //    istream we need is either stdin or unbuffereed fileinsputstream
-    val istream= if(indexFile=="-") System.`in` else File(indexFile).inputStream()
+    val istream = if (indexFile == "-") System.`in` else File(indexFile).inputStream()
     val access = GzipIndexReader.deserialize_index_from_file(istream, gzipFile)
     println(access)
 }
+
 /**
 The v0 and v1 gzip index file formats have the following fixed bytes:
 
@@ -56,16 +52,16 @@ Line number (only in v1 format): the line number at which the block starts in th
 All fields have fixed sizes except for the compressed data window, which has a variable size.
  */
 
-val intx = ByteArray(4)
 fun InputStream.readInt(): Int {
+    val intx = ByteArray(4)
     read(intx)
-    return readInt(intx)
+    return wrap(intx).order(ByteOrder.BIG_ENDIAN).int
 }
 
-val longx = ByteArray(8)
 fun InputStream.readLong(): Long {
+    val longx = ByteArray(8)
     read(longx)
-    return readLong(longx)
+    return wrap(longx).order(ByteOrder.BIG_ENDIAN).long
 }
 
 fun InputStream.readUInt(): UInt {
@@ -74,6 +70,25 @@ fun InputStream.readUInt(): UInt {
 
 fun InputStream.readULong(): ULong {
     return readLong().toULong()
+}
+fun InputStream.readIntSE(): Int {
+    val intx = ByteArray(4)
+    read(intx)
+    return wrap(intx).order(ByteOrder.LITTLE_ENDIAN).int
+}
+
+fun InputStream.readLongSE(): Long {
+    val longx = ByteArray(8)
+    read(longx)
+    return wrap(longx).order(ByteOrder.LITTLE_ENDIAN).long
+}
+
+fun InputStream.readUIntSE(): UInt {
+    return readIntSE().toUInt()
+}
+
+fun InputStream.readULongSE(): ULong {
+    return readLongSE().toULong()
 }
 
 
@@ -88,7 +103,7 @@ object GzipIndexReader {
         var window: ByteArray = emptiestByteArray,
         var windowBeginning: ULong = 0u,
         var lineNumber: ULong = 0u,
-    ){
+    ) {
         //make a toString function that blots out window data
         override fun toString(): String {
             return "Point(out=$out, `in`=$`in`, bits=$bits, windowSize=$windowSize, window=[...], windowBeginning=$windowBeginning, lineNumber=$lineNumber)"
@@ -98,16 +113,16 @@ object GzipIndexReader {
     data class Access(
 //        uint64_t have;      /* number of list entries filled in */
 //    uint64_t size;      /* number of list entries allocated */
-       var have: ULong = 0u, //size
-       var size: ULong = 0u, //size
+        var have: ULong = 0u, //size
+        var size: ULong = 0u, //size
         var fileSize: ULong = 0u,
         var list: MutableList<Point> = mutableListOf(),//of size size
         var fileName: String = "",// NOTE: file_name, index_complete and index_version are not stored on disk (on-memory-only values)
-       var indexComplete: UInt = 0u,// NOTE: file_name, index_complete and index_version are not stored on disk (on-memory-only values)
-       var indexVersion: UInt = 0u,// NOTE: file_name, index_complete and index_version are not stored on disk (on-memory-only values)
-       var lineNumberFormat: UInt = 0u,/* 0: linux \r | windows \n\r; 1: mac \n */
+        var indexComplete: UInt = 0u,// NOTE: file_name, index_complete and index_version are not stored on disk (on-memory-only values)
+        var indexVersion: UInt = 0u,// NOTE: file_name, index_complete and index_version are not stored on disk (on-memory-only values)
+        var lineNumberFormat: UInt = 0u,/* 0: linux \r | windows \n\r; 1: mac \n */
         var numberOfLines: ULong = 0u,
-    ){
+    ) {
         //make a toString function that blots out window data
         override fun toString(): String {
             return "Access(have=$have, size=$size, fileSize=$fileSize, list=${list.size}, fileName='$fileName', indexComplete=$indexComplete, indexVersion=$indexVersion, lineNumberFormat=$lineNumberFormat, numberOfLines=$numberOfLines)"
@@ -118,36 +133,7 @@ object GzipIndexReader {
     const val GZIP_INDEX_IDENTIFIER_STRING = "gzipindx"
     const val GZIP_INDEX_IDENTIFIER_STRING_V1 = "gzipindX"
 
-    fun ByteBuffer.readLongBE(): Long {
-        order(ByteOrder.BIG_ENDIAN)
-        return long
-    }
 
-    fun ByteBuffer.readIntBE(): Int {
-        order(ByteOrder.BIG_ENDIAN)
-        return int
-    }
-
-    fun ByteBuffer.readBytes(n: Int): ByteArray {
-        val arr = ByteArray(n)
-        get(arr)
-        return arr
-    }
-
-
-    fun FileChannel.readIntBE(): Int {
-        val buffer = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN)
-        read(buffer)
-        buffer.flip()
-        return buffer.int
-    }
-
-    fun FileChannel.readLongBE(): Long {
-        val buffer = ByteBuffer.allocate(8).order(ByteOrder.BIG_ENDIAN)
-        read(buffer)
-        buffer.flip()
-        return buffer.long
-    }
 
     /**
     read index from a file
@@ -167,36 +153,40 @@ object GzipIndexReader {
     ### OUTPUT:
     `struct access *index : pointer to index, or NULL on error`
      */
-
-
     fun deserialize_index_from_file(
         istream: InputStream,
         file_name: String? = null,
     ): Access {
         val theIndex = Access()
         require(0L == istream.readLong()) { "failed magic bytes 0" }
+
         val indexVersion = run {
-            val v0 = readULong(GZIP_INDEX_IDENTIFIER_STRING.encodeToByteArray())
-            val v1 = readULong(GZIP_INDEX_IDENTIFIER_STRING_V1.encodeToByteArray())
+            val v0 = wrap (GZIP_INDEX_IDENTIFIER_STRING.encodeToByteArray()).order(ByteOrder.BIG_ENDIAN).long.toULong()
+            val v1 =  wrap (GZIP_INDEX_IDENTIFIER_STRING_V1.encodeToByteArray()).order(ByteOrder.BIG_ENDIAN).long.toULong()
             val vers = istream.readULong()
-            require(vers in arrayOf(v0, v1)) {
-                "failed magic header string"
-            }
+            require(vers in arrayOf(v0, v1)) { "failed magic header string" }
             if (vers == v0) 0u else 1u
         }
 
-//        uint64_t have;      /* number of list entries filled in */
-//        uint64_t size;      /* number of list entries allocated */
-        theIndex.have = istream.readULong()
-        theIndex.size = istream.readULong()
-        theIndex.fileName = file_name ?: ""
-        theIndex.fileSize = istream.readULong()
-        theIndex.indexComplete = 1u
-        theIndex.indexVersion = indexVersion
-        theIndex.lineNumberFormat = istream.readUInt()
-        theIndex.numberOfLines = istream.readULong()
+        theIndex.indexVersion = indexVersion // Moved indexVersion assignment up
+//        theIndex.indexComplete = if (istream.read() == 0) 0u else 1u // Read indexComplete here
+        if (indexVersion == 1u) {
+            val readUInt = istream.readUInt()
+            theIndex.lineNumberFormat = readUInt
+        }
 
-        for (i in 0 until theIndex.size.toInt()) {
+        val readULong1 = istream.readULong ()
+        theIndex.have = readULong1
+        val readULong2 = istream.readULong ()
+        theIndex.size = readULong2
+        theIndex.fileName = file_name ?: ""
+        // Read file_size conditionally
+        if (theIndex.indexComplete == 1u) theIndex.fileSize = istream.readULong()
+        // Read lineNumberFormat conditionally
+        // Read numberOfLines conditionally
+        if (indexVersion == 1u && theIndex.indexComplete == 1u) theIndex.numberOfLines = istream.readULong()
+
+        while (istream.available() > 0) {
             var wsize = -1
             theIndex.list.add(
                 Point(
@@ -205,7 +195,6 @@ object GzipIndexReader {
                     bits = istream.readUInt(),
                     windowSize = istream.readUInt().also { wsize = it.toInt() },
                     window = istream.readNBytes(wsize),
-
                     lineNumber = if (indexVersion == 1u) istream.readULong() else 0u,
                 )
             )

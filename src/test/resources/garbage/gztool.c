@@ -3308,234 +3308,234 @@ access point after the last block by checking bit 6 of data_type
 // OUTPUT:
 // struct access *index : pointer to index, or NULL on error
 struct access *deserialize_index_from_file(
-FILE *input_file, int load_windows, char *file_name,
-int extend_index_with_lines
+        FILE *input_file, int load_windows, char *file_name,
+        int extend_index_with_lines
 ) {
-struct point here;
-struct access *index = NULL;
-uint32_t index_complete = 1;
-uint64_t number_of_index_points = 0;
-uint64_t index_have, index_size, file_size;
-uint64_t position_at_file = 0;
-char header[GZIP_INDEX_HEADER_SIZE];
-struct stat st;
-int index_version = 0;           /* 0: default; 1: index with line numbers */
+    struct point here;
+    struct access *index = NULL;
+    uint32_t index_complete = 1;
+    uint64_t number_of_index_points = 0;
+    uint64_t index_have, index_size, file_size;
+    uint64_t position_at_file = 0;
+    char header[GZIP_INDEX_HEADER_SIZE];
+    struct stat st;
+    int index_version = 0;           /* 0: default; 1: index with line numbers */
 
 // get index file size to calculate on-the-fly how many registers are
 // in order to being able to read still-growing index files (see `-S`)
-if (strlen(file_name) > 0) {
-stat(file_name, &st);
-file_size = st.st_size;
-} else {
+    if (strlen(file_name) > 0) {
+        stat(file_name, &st);
+        file_size = st.st_size;
+    } else {
 // for stdin use max value
-file_size = UINT64_MAX;
-}
+        file_size = UINT64_MAX;
+    }
 
 // check index size == 0
-if (file_size != 0) {
-if (fread(header, 1, GZIP_INDEX_HEADER_SIZE, input_file) == GZIP_INDEX_HEADER_SIZE &&
-*((uint64_t * )
-header) == 0 ) {
-if (strncmp(&header[GZIP_INDEX_HEADER_SIZE / 2], GZIP_INDEX_IDENTIFIER_STRING,
-GZIP_INDEX_HEADER_SIZE / 2) != 0) {
-if (strncmp(&header[GZIP_INDEX_HEADER_SIZE / 2], GZIP_INDEX_IDENTIFIER_STRING_V1,
-GZIP_INDEX_HEADER_SIZE / 2) != 0) {
-printToStderr(VERBOSITY_NORMAL, "ERROR: File is not a valid gzip index file.\n");
-return NULL;
-} else {
-index_version = 1;
-}
-} else {
-index_version = 0;
-}
-} else {
-printToStderr(VERBOSITY_NORMAL, "ERROR: File is not a valid gzip index file.\n");
-return NULL;
-}
-} else {
+    if (file_size != 0) {
+        if (fread(header, 1, GZIP_INDEX_HEADER_SIZE, input_file) == GZIP_INDEX_HEADER_SIZE &&
+            *((uint64_t * )
+            header) == 0 ) {
+            if (strncmp(&header[GZIP_INDEX_HEADER_SIZE / 2], GZIP_INDEX_IDENTIFIER_STRING,
+                        GZIP_INDEX_HEADER_SIZE / 2) != 0) {
+                if (strncmp(&header[GZIP_INDEX_HEADER_SIZE / 2], GZIP_INDEX_IDENTIFIER_STRING_V1,
+                            GZIP_INDEX_HEADER_SIZE / 2) != 0) {
+                    printToStderr(VERBOSITY_NORMAL, "ERROR: File is not a valid gzip index file.\n");
+                    return NULL;
+                } else {
+                    index_version = 1;
+                }
+            } else {
+                index_version = 0;
+            }
+        } else {
+            printToStderr(VERBOSITY_NORMAL, "ERROR: File is not a valid gzip index file.\n");
+            return NULL;
+        }
+    } else {
 // for an empty index, return a pointer with zero data
-index = create_empty_index();
-if (extend_index_with_lines > 0) {
-index->index_version = 1;
-if (extend_index_with_lines == 2)
-index->line_number_format = 1;
-else
-index->line_number_format = 0; // extend_index_with_lines = 1 || 3
-}
-return index;
-}
+        index = create_empty_index();
+        if (extend_index_with_lines > 0) {
+            index->index_version = 1;
+            if (extend_index_with_lines == 2)
+                index->line_number_format = 1;
+            else
+                index->line_number_format = 0; // extend_index_with_lines = 1 || 3
+        }
+        return index;
+    }
 
-if (0 == index_version &&
-extend_index_with_lines > 0) {
-if (3 != extend_index_with_lines) {
-printToStderr(VERBOSITY_NORMAL, "ERROR: Existing index has no line number information.\n");
-printToStderr(VERBOSITY_NORMAL, "ERROR: Aborting on `-[LRxX]` parameter(s).\n");
-goto deserialize_index_from_file_error;
-} else {
+    if (0 == index_version &&
+        extend_index_with_lines > 0) {
+        if (3 != extend_index_with_lines) {
+            printToStderr(VERBOSITY_NORMAL, "ERROR: Existing index has no line number information.\n");
+            printToStderr(VERBOSITY_NORMAL, "ERROR: Aborting on `-[LRxX]` parameter(s).\n");
+            goto deserialize_index_from_file_error;
+        } else {
 // transparently handle v0 files, as `-x` was implicitly tried (v>1.4.2), but it is not compulsory
-extend_index_with_lines = 0; // this value is not used - set here only for clarity
-printToStderr(VERBOSITY_EXCESSIVE, "implicit `-x`: 0 (deserialize_index_from_file).\n");
-}
-}
+            extend_index_with_lines = 0; // this value is not used - set here only for clarity
+            printToStderr(VERBOSITY_EXCESSIVE, "implicit `-x`: 0 (deserialize_index_from_file).\n");
+        }
+    }
 
-index = create_empty_index();
-index->index_version = index_version;
+    index = create_empty_index();
+    index->index_version = index_version;
 
 // if index is v1, there's a previous register with line separator format info:
-if (index_version == 1) {
-fread_endian(&(index->line_number_format), sizeof(index->line_number_format), input_file);
-}
+    if (index_version == 1) {
+        fread_endian(&(index->line_number_format), sizeof(index->line_number_format), input_file);
+    }
 
-fread_endian(&(index_have), sizeof(index_have), input_file);
-fread_endian(&(index_size), sizeof(index_size), input_file);
+    fread_endian(&(index_have), sizeof(index_have), input_file);
+    fread_endian(&(index_size), sizeof(index_size), input_file);
 
-printToStderr(VERBOSITY_MANIAC, "Number of index points declared: %llu - %llu\n", index_have, index_size);
+    printToStderr(VERBOSITY_MANIAC, "Number of index points declared: %llu - %llu\n", index_have, index_size);
 
-number_of_index_points = index_have;
+    number_of_index_points = index_have;
 
 // index->size equals index->have when the index file is correctly closed,
 // and index->have on disk == 0 && index->have on disk = index->size whilst the index is growing:
-if (index_have != index_size) {
-printToStderr(VERBOSITY_NORMAL, "Index file is incomplete.\n");
-index_complete = 0;
-number_of_index_points = index_size;
-}
+    if (index_have != index_size) {
+        printToStderr(VERBOSITY_NORMAL, "Index file is incomplete.\n");
+        index_complete = 0;
+        number_of_index_points = index_size;
+    }
 
-if (verbosity_level == VERBOSITY_EXCESSIVE)
-printToStderr(VERBOSITY_EXCESSIVE, "Number of index points declared: %llu\n", number_of_index_points);
+    if (verbosity_level == VERBOSITY_EXCESSIVE)
+        printToStderr(VERBOSITY_EXCESSIVE, "Number of index points declared: %llu\n", number_of_index_points);
 
-position_at_file = GZIP_INDEX_HEADER_SIZE +
-((1 == index->index_version) ? sizeof(index->line_number_format) : 0) +
-sizeof(index_have) * 2;
+    position_at_file = GZIP_INDEX_HEADER_SIZE +
+                       ((1 == index->index_version) ? sizeof(index->line_number_format) : 0) +
+                       sizeof(index_have) * 2;
 
 // read the list of points
-do {
+    do {
 
-fread_endian(&(here.out), sizeof(here.out), input_file);
-fread_endian(&(here.in), sizeof(here.in), input_file);
-fread_endian(&(here.bits), sizeof(here.bits), input_file);
-fread_endian(&(here.window_size), sizeof(here.window_size), input_file);
-position_at_file += sizeof(here.out) + sizeof(here.in) + sizeof(here.bits) + sizeof(here.window_size);
-printToStderr(VERBOSITY_MANIAC, "#%llu: READ window_size=%d",
-((NULL == index) ? 1 : index->have + 1), here.window_size);
+        fread_endian(&(here.out), sizeof(here.out), input_file);
+        fread_endian(&(here.in), sizeof(here.in), input_file);
+        fread_endian(&(here.bits), sizeof(here.bits), input_file);
+        fread_endian(&(here.window_size), sizeof(here.window_size), input_file);
+        position_at_file += sizeof(here.out) + sizeof(here.in) + sizeof(here.bits) + sizeof(here.window_size);
+        printToStderr(VERBOSITY_MANIAC, "#%llu: READ window_size=%d",
+                      ((NULL == index) ? 1 : index->have + 1), here.window_size);
 
-if (here.bits > 8) {
-printToStderr(VERBOSITY_MANIAC, "\t(%p, %d, %llu, %llu, %d, %llu)\n", index, here.bits, here.in, here.out,
-here.window_size, file_size);
-printToStderr(VERBOSITY_EXCESSIVE,
-"Unexpected data found in index file '%s' @%llu.\nIgnoring data subsequent to point %llu.\n",
-file_name, position_at_file, index_size - number_of_index_points + 1);
-break; // exit do loop
-}
+        if (here.bits > 8) {
+            printToStderr(VERBOSITY_MANIAC, "\t(%p, %d, %llu, %llu, %d, %llu)\n", index, here.bits, here.in, here.out,
+                          here.window_size, file_size);
+            printToStderr(VERBOSITY_EXCESSIVE,
+                          "Unexpected data found in index file '%s' @%llu.\nIgnoring data subsequent to point %llu.\n",
+                          file_name, position_at_file, index_size - number_of_index_points + 1);
+            break; // exit do loop
+        }
 
-if (load_windows == 0) {
+        if (load_windows == 0) {
 // do not load window on here.window, but leave it on disk: this is marked with
 // a here.window_beginning to the position of the window on disk
-here.window = NULL;
-here.window_beginning = position_at_file;
+            here.window = NULL;
+            here.window_beginning = position_at_file;
 // and position into file as if read had occur
-if (stdin == input_file) {
+            if (stdin == input_file) {
 // read input until here.window_size
-uint64_t pos = 0;
-uint64_t position = here.window_size;
-unsigned char *input = malloc(CHUNK);
-if (NULL == input) {
-printToStderr(VERBOSITY_NORMAL, "Not enough memory to load index from STDIN.\n");
-goto deserialize_index_from_file_error;
-}
-while (pos < position) {
-if (!fread(input, 1, (pos + CHUNK < position) ? CHUNK : (position - pos), input_file)) {
-printToStderr(VERBOSITY_NORMAL, "Could not read index from STDIN.\n");
-goto deserialize_index_from_file_error;
-}
-pos += CHUNK;
-}
-free(input);
-} else {
-if (here.window_size > 0)
-fseeko(input_file, here.window_size, SEEK_CUR);
-}
-} else {
+                uint64_t pos = 0;
+                uint64_t position = here.window_size;
+                unsigned char *input = malloc(CHUNK);
+                if (NULL == input) {
+                    printToStderr(VERBOSITY_NORMAL, "Not enough memory to load index from STDIN.\n");
+                    goto deserialize_index_from_file_error;
+                }
+                while (pos < position) {
+                    if (!fread(input, 1, (pos + CHUNK < position) ? CHUNK : (position - pos), input_file)) {
+                        printToStderr(VERBOSITY_NORMAL, "Could not read index from STDIN.\n");
+                        goto deserialize_index_from_file_error;
+                    }
+                    pos += CHUNK;
+                }
+                free(input);
+            } else {
+                if (here.window_size > 0)
+                    fseeko(input_file, here.window_size, SEEK_CUR);
+            }
+        } else {
 // load compressed window on memory:
-if (here.window_size > 0) {
-here.window = malloc(here.window_size);
+            if (here.window_size > 0) {
+                here.window = malloc(here.window_size);
 // load window on here.window: this is marked with
 // a here.window_beginning = 0 (which is impossible with gzipindx format)
-here.window_beginning = 0;
-if (here.window == NULL) {
-printToStderr(VERBOSITY_NORMAL, "Not enough memory to load index from file.\n");
-goto deserialize_index_from_file_error;
-}
-if (!fread(here.window, here.window_size, 1, input_file)) {
-printToStderr(VERBOSITY_NORMAL, "Error while reading index file.\n");
-goto deserialize_index_from_file_error;
-}
-} else {
-here.window = NULL;
-}
-}
-position_at_file += here.window_size;
+                here.window_beginning = 0;
+                if (here.window == NULL) {
+                    printToStderr(VERBOSITY_NORMAL, "Not enough memory to load index from file.\n");
+                    goto deserialize_index_from_file_error;
+                }
+                if (!fread(here.window, here.window_size, 1, input_file)) {
+                    printToStderr(VERBOSITY_NORMAL, "Error while reading index file.\n");
+                    goto deserialize_index_from_file_error;
+                }
+            } else {
+                here.window = NULL;
+            }
+        }
+        position_at_file += here.window_size;
 
-if (index_version == 1) {
-fread_endian(&(here.line_number), sizeof(here.line_number), input_file);
-position_at_file += sizeof(here.line_number);
-} else {
-here.line_number = 0;
-}
+        if (index_version == 1) {
+            fread_endian(&(here.line_number), sizeof(here.line_number), input_file);
+            position_at_file += sizeof(here.line_number);
+        } else {
+            here.line_number = 0;
+        }
 
-printToStderr(VERBOSITY_MANIAC, "(%p, %d, %llu, %llu, %d, %llu, %llu)\n",
-index, here.bits, here.in, here.out, here.window_size, here.window_beginning, here.line_number);
+        printToStderr(VERBOSITY_MANIAC, "(%p, %d, %llu, %llu, %d, %llu, %llu)\n",
+                      index, here.bits, here.in, here.out, here.window_size, here.window_beginning, here.line_number);
 // increase index structure with a new point
 // (here.window can be NULL if load_windows==0)
-index = addpoint(index, here.bits, here.in, here.out, 0, here.window, here.window_size, here.line_number, 0);
+        index = addpoint(index, here.bits, here.in, here.out, 0, here.window, here.window_size, here.line_number, 0);
 
 // after increasing index, copy values which were not passed to addpoint():
-index->list[index->have - 1].window_beginning = here.window_beginning;
+        index->list[index->have - 1].window_beginning = here.window_beginning;
 // note that even if (here.window != NULL) it MUST NOT be free() here, because
 // the pointer has been copied in a point of the index structure.
 
-printToStderr(VERBOSITY_NUTS, "{%llu>=%llu && %llu>0}", (file_size - position_at_file),
-(sizeof(here.out) + sizeof(here.in) + sizeof(here.bits) +
-sizeof(here.window_size)), number_of_index_points - 1);
+        printToStderr(VERBOSITY_NUTS, "{%llu>=%llu && %llu>0}", (file_size - position_at_file),
+                      (sizeof(here.out) + sizeof(here.in) + sizeof(here.bits) +
+                       sizeof(here.window_size)), number_of_index_points - 1);
 
-} while (
-(file_size - position_at_file) >=
-// at least an empty window must enter, otherwise end loop:
-(sizeof(here.out) + sizeof(here.in) + sizeof(here.bits) +
-sizeof(here.window_size))
-&&
---number_of_index_points > 0
-);
+    } while (
+            (file_size - position_at_file) >=
+            // at least an empty window must enter, otherwise end loop:
+            (sizeof(here.out) + sizeof(here.in) + sizeof(here.bits) +
+             sizeof(here.window_size))
+            &&
+            --number_of_index_points > 0
+            );
 
 
-index->file_size = 0;
+    index->file_size = 0;
 
-if (index_complete == 1) {
+    if (index_complete == 1) {
 /* read size of uncompressed file (useful for bgzip files) */
 /* this field may not exist (maybe useful for growing gzip files?) */
-fread_endian(&(index->file_size), sizeof(index->file_size), input_file);
+        fread_endian(&(index->file_size), sizeof(index->file_size), input_file);
 /* read number of lines in uncompressed file */
 /* this field does not exist with v0 of index file */
-fread_endian(&(index->number_of_lines), sizeof(index->number_of_lines), input_file);
-}
+        fread_endian(&(index->number_of_lines), sizeof(index->number_of_lines), input_file);
+    }
 
-index->file_name = malloc(strlen(file_name) + 1);
-if (NULL == index->file_name ||
-NULL == memcpy(index->file_name, file_name, strlen(file_name) + 1)) {
-printToStderr(VERBOSITY_NORMAL, "Not enough memory to load index from file.\n");
-goto deserialize_index_from_file_error;
-}
+    index->file_name = malloc(strlen(file_name) + 1);
+    if (NULL == index->file_name ||
+        NULL == memcpy(index->file_name, file_name, strlen(file_name) + 1)) {
+        printToStderr(VERBOSITY_NORMAL, "Not enough memory to load index from file.\n");
+        goto deserialize_index_from_file_error;
+    }
 
-if (index_complete == 1)
-index->index_complete = 1; /* index is now complete */
-else
-index->index_complete = 0;
+    if (index_complete == 1)
+        index->index_complete = 1; /* index is now complete */
+    else
+        index->index_complete = 0;
 
-return index;
+    return index;
 
-deserialize_index_from_file_error:
-free_index(index);
-return NULL;
+    deserialize_index_from_file_error:
+    free_index(index);
+    return NULL;
 
 }
 
@@ -6346,3 +6346,4 @@ printToStderr( VERBOSITY_NORMAL, "WARNING: `-[Xx]` will be ignored because index
         return ret_value;
 
 }
+
