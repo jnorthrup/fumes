@@ -1,6 +1,9 @@
 package ed.fumes
 
-import borg.trikeshed.isam.meta.PlatformCodec.Companion.currentPlatformCodec.readULong
+import borg.trikeshed.common.use
+import borg.trikeshed.lib.FibonacciReporter
+import borg.trikeshed.lib.humanReadableByteCountIEC
+import borg.trikeshed.lib.humanReadableByteCountSI
 import java.io.File
 import java.io.InputStream
 import java.nio.ByteBuffer.wrap
@@ -16,6 +19,14 @@ fun main(args: Array<String>) {
     val istream = if (indexFile == "-") System.`in` else File(indexFile).inputStream()
     val access = GzipIndexReader.deserialize_index_from_file(istream, gzipFile)
     println(access)
+
+    val size = access.list.size
+    FibonacciReporter(size, "distances") .use { fibReporter->
+//    take this index and show access rolling report of the position compressed version the uncompressed position.
+      for ((ix, point) in access.list.withIndex()) {
+          if (fibReporter.report() != null||ix==size-1) println("point $ix: in=${point.`in`.toLong().humanReadableByteCountIEC} out=${point.out.toLong().humanReadableByteCountIEC}  ratio %${point.`in`.toFloat() / point.out.toFloat() * 100}")
+      }
+  }
 }
 
 /**
