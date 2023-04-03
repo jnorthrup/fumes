@@ -289,6 +289,11 @@ object GzipIndexReader {
 
     }
 
+    fun calculateCompressedOffset(point: Point): ULong {
+        return point.out - (if (point.bits > 0) 1UL else 0UL) - point.bits.toULong()
+    }
+
+
     fun inflateSourceFile(
         inputStream: InputStream,
         point: Point,
@@ -307,7 +312,7 @@ object GzipIndexReader {
         var uncompressedOffset = point.`in`.toULong()
 
         while (true) {
-            val bytesRead: Int  = inputStream.read(compressedDataBuffer)
+            val bytesRead: Int = inputStream.read(compressedDataBuffer)
             if (bytesRead != -1) {
                 compressedOffset += bytesRead.toUInt()
                 inflater.setInput(compressedDataBuffer, 0, bytesRead)
