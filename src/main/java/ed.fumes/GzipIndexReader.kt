@@ -1,32 +1,73 @@
 package ed.fumes
 
+
 import borg.trikeshed.common.use
 import borg.trikeshed.lib.FibonacciReporter
 import borg.trikeshed.lib.humanReadableByteCountIEC
-import borg.trikeshed.lib.humanReadableByteCountSI
-import java.io.File
-import java.io.InputStream
+import borg.trikeshed.lib.logDebug
+import java.io.*
 import java.nio.ByteBuffer.wrap
 import java.nio.ByteOrder
+import java.util.zip.Inflater
 
 
 /** the first arg is mandatory, the second arg is optional.  first file is the index, second is the gzip file.  the default gzip file is the ending of the .gzi file to be the .gz filename.   `-` implies the inputstream is from stdin and causes an error if the gzip is not specified. the index is loaded into memory as an Access struct*/
-fun main(args: Array<String>) {
+fun showIndexCompressionRatios(args: Array<String>) {
     val indexFile = args[0]
     val gzipFile = args.getOrNull(1) ?: indexFile.substringBeforeLast(".gzi") + ".gz"
 
-//    istream we need is either stdin or unbuffereed fileinsputstream
+    //    istream we need is either stdin or unbuffereed fileinsputstream
     val istream = if (indexFile == "-") System.`in` else File(indexFile).inputStream()
     val access = GzipIndexReader.deserialize_index_from_file(istream, gzipFile)
     println(access)
 
     val size = access.list.size
-    FibonacciReporter(size, "distances") .use { fibReporter->
-//    take this index and show access rolling report of the position compressed version the uncompressed position.
-      for ((ix, point) in access.list.withIndex()) {
-          if (fibReporter.report() != null||ix==size-1) println("point $ix: in=${point.`in`.toLong().humanReadableByteCountIEC} out=${point.out.toLong().humanReadableByteCountIEC}  ratio %${point.`in`.toFloat() / point.out.toFloat() * 100}")
-      }
-  }
+    FibonacciReporter(size, "distances").use { fibReporter ->
+        //    take this index and show access rolling report of the position compressed version the uncompressed position.
+        for ((ix, point) in access.list.withIndex())
+            if (fibReporter.report() != null) indexSlotStats(ix, point)
+        var c = size - 2
+        access.list.takeLast(2).forEach { indexSlotStats(c++, it) }
+    }
+}
+
+/** the first arg is mandatory, the second arg is optional.  first file is the index, second is the gzip file.  the default gzip file is the ending of the .gzi file to be the .gz filename.   `-` implies the inputstream is from stdin and causes an error if the gzip is not specified. the index is loaded into memory as an Access struct*/
+fun showWindows(args: Array<String>) {
+    val indexFile = args[0]
+    val gzipFile = args.getOrNull(1) ?: indexFile.substringBeforeLast(".gzi") + ".gz"
+
+    //    istream we need is either stdin or unbuffereed fileinsputstream
+    val istream = if (indexFile == "-") System.`in` else File(indexFile).inputStream()
+    val access = GzipIndexReader.deserialize_index_from_file(istream, gzipFile)
+    println(access)
+
+    val size = access.list.size
+    FibonacciReporter(size, "distances").use { fibReporter ->
+        //    take this index and show access rolling report of the position compressed version the uncompressed position.
+        for ((ix, point) in access.list.withIndex())
+            if (fibReporter.report() != null) indexSlotStats2(ix, point)
+        var c = size - 2
+        access.list.takeLast(2).forEach { indexSlotStats2(c++, it) }
+    }
+}
+
+
+private fun indexSlotStats(ix: Int, point: GzipIndexReader.Point) {
+    println("point $ix: in=${point.`in`.toLong().humanReadableByteCountIEC} out=${point.out.toLong().humanReadableByteCountIEC}  ratio %${point.`in`.toFloat() / point.out.toFloat() * 100}")
+}
+
+private fun indexSlotStats2(ix: Int, point: GzipIndexReader.Point) {
+
+    val samp = point.window.take(40)
+    val sampString = samp.map { it.toInt().toChar() }.joinToString("")
+
+    //inflate the window
+    val inflater = Inflater()
+    inflater.setInput(point.window)
+    val out = ByteArray(40)
+    val len = inflater.inflate(out)
+    val outString = out.map { it.toInt().toChar() }.joinToString("")
+    println("point $ix: in=${point.`in`.toLong().humanReadableByteCountIEC} out=${point.out.toLong().humanReadableByteCountIEC}  window: ${sampString}  out: ${outString}")
 }
 
 /**
@@ -82,6 +123,7 @@ fun InputStream.readUInt(): UInt {
 fun InputStream.readULong(): ULong {
     return readLong().toULong()
 }
+
 fun InputStream.readIntSE(): Int {
     val intx = ByteArray(4)
     read(intx)
@@ -145,7 +187,6 @@ object GzipIndexReader {
     const val GZIP_INDEX_IDENTIFIER_STRING_V1 = "gzipindX"
 
 
-
     /**
     read index from a file
     ### INPUT:
@@ -167,15 +208,18 @@ object GzipIndexReader {
     fun deserialize_index_from_file(
         istream: InputStream,
         file_name: String? = null,
-    ): Access {
+        uncompressedIndex: ULong? = null,
+    ): Access = FibonacciReporter(noun = "indexes").use { reporter ->
         val theIndex = Access()
         require(0L == istream.readLong()) { "failed magic bytes 0" }
 
         val indexVersion = run {
-            val v0 = wrap (GZIP_INDEX_IDENTIFIER_STRING.encodeToByteArray()).order(ByteOrder.BIG_ENDIAN).long.toULong()
-            val v1 =  wrap (GZIP_INDEX_IDENTIFIER_STRING_V1.encodeToByteArray()).order(ByteOrder.BIG_ENDIAN).long.toULong()
-            val vers = istream.readULong()
-            require(vers in arrayOf(v0, v1)) { "failed magic header string" }
+            val v0: ULong =
+                wrap(GZIP_INDEX_IDENTIFIER_STRING.encodeToByteArray()).order(ByteOrder.BIG_ENDIAN).long.toULong()
+            val v1: ULong =
+                wrap(GZIP_INDEX_IDENTIFIER_STRING_V1.encodeToByteArray()).order(ByteOrder.BIG_ENDIAN).long.toULong()
+            val vers: ULong = istream.readULong()
+            require(value = vers in arrayOf(v0, v1)) { "failed magic header string" }
             if (vers == v0) 0u else 1u
         }
 
@@ -186,9 +230,9 @@ object GzipIndexReader {
             theIndex.lineNumberFormat = readUInt
         }
 
-        val readULong1 = istream.readULong ()
+        val readULong1 = istream.readULong()
         theIndex.have = readULong1
-        val readULong2 = istream.readULong ()
+        val readULong2 = istream.readULong()
         theIndex.size = readULong2
         theIndex.fileName = file_name ?: ""
         // Read file_size conditionally
@@ -199,17 +243,103 @@ object GzipIndexReader {
 
         while (istream.available() > 0) {
             var wsize = -1
+            var element: Point
+            val out = istream.readULong()
+            if (uncompressedIndex != null && uncompressedIndex <= out) break
+
             theIndex.list.add(
                 Point(
-                    out = istream.readULong(),
+                    out,
                     `in` = istream.readULong(),
                     bits = istream.readUInt(),
                     windowSize = istream.readUInt().also { wsize = it.toInt() },
                     window = istream.readNBytes(wsize),
                     lineNumber = if (indexVersion == 1u) istream.readULong() else 0u,
-                )
+                ).also { element = it }
+
             )
+            reporter.report()?.let { r -> logDebug { r } }
         }
-        return theIndex
+        return@use theIndex
     }
+
+    fun decompress_index_window(
+        indexFilename: String,
+        gzipFile: String = indexFilename.substringBeforeLast(".gzi") + ".gz",
+        uncompressedIndex: ULong = 0U,
+    ): ByteArray {
+        val access: Access =
+            deserialize_index_from_file(FileInputStream(indexFilename), uncompressedIndex = uncompressedIndex)
+        val happy = access.list.last()
+        val out = happy.out
+        require(out < uncompressedIndex) { "index underrun seeking $uncompressedIndex hitting up against $out" }
+
+        //inflate happy.window
+        val inflater = Inflater()
+        inflater.setInput(happy.window)
+        val outBuffer = ByteArray(1024)
+        val outStream = ByteArrayOutputStream()
+        while (!inflater.finished()) {
+            val count = inflater.inflate(outBuffer)
+            outStream.write(outBuffer, 0, count)
+            if (inflater.needsInput()) {
+            }
+        }
+        return outStream.toByteArray()
+
+    }
+
+    fun inflateSourceFile(
+        inputStream: InputStream,
+        point: Point,
+        uncompressedEntryPoint: ULong,
+        outputStream: OutputStream
+    ) {
+        val inflater = Inflater()
+
+        // Set dictionary from the decompressed window
+        inflater.setDictionary(point.window)
+
+        // Read and decompress the source file
+        val compressedDataBuffer = ByteArray(1024) // Adjust the buffer size as needed
+
+        var compressedOffset = point.out.toULong() //
+        var uncompressedOffset = point.`in`.toULong()
+
+        while (true) {
+            val bytesRead: Int  = inputStream.read(compressedDataBuffer)
+            if (bytesRead != -1) {
+                compressedOffset += bytesRead.toUInt()
+                inflater.setInput(compressedDataBuffer, 0, bytesRead)
+                val decompressedDataBuffer = ByteArray(1024) // Adjust the buffer size as needed
+
+                while (!inflater.needsInput()) {
+                    val bytesInflated = inflater.inflate(decompressedDataBuffer)
+                    uncompressedOffset += bytesInflated.toUInt()
+
+                    if (uncompressedOffset >= uncompressedEntryPoint.toUInt()) {
+                        val bytesToWrite = uncompressedOffset - uncompressedEntryPoint.toUInt()
+                        outputStream.write(
+                            decompressedDataBuffer,
+                            bytesInflated - bytesToWrite.toInt(),
+                            bytesToWrite.toInt()
+                        )
+                    }
+                }
+            } else break
+        }
+        inflater.end()
+    }
+
+
 }
+
+fun main(args: Array<String>) {
+    showWindows(args)
+
+}
+
+
+
+
+
