@@ -18,7 +18,7 @@ fun showIndexCompressionRatios(args: Array<String>) {
 
     //    istream we need is either stdin or unbuffereed fileinsputstream
     val istream = if (indexFile == "-") System.`in` else File(indexFile).inputStream()
-    val access = GzipIndexReader.deserialize_index_from_file(istream, gzipFile)
+    val access = GztoolIndexReader.deserialize_index_from_file(istream, gzipFile)
     println(access)
 
     val size = access.list.size
@@ -38,7 +38,7 @@ fun showWindows(args: Array<String>) {
 
     //    istream we need is either stdin or unbuffereed fileinsputstream
     val istream = if (indexFile == "-") System.`in` else File(indexFile).inputStream()
-    val access = GzipIndexReader.deserialize_index_from_file(istream, gzipFile)
+    val access = GztoolIndexReader.deserialize_index_from_file(istream, gzipFile)
     println(access)
 
     val size = access.list.size
@@ -52,11 +52,11 @@ fun showWindows(args: Array<String>) {
 }
 
 
-private fun indexSlotStats(ix: Int, point: GzipIndexReader.Point) {
+private fun indexSlotStats(ix: Int, point: GztoolIndexReader.Point) {
     println("point $ix: in=${point.`in`.toLong().humanReadableByteCountIEC} out=${point.out.toLong().humanReadableByteCountIEC}  ratio %${point.`in`.toFloat() / point.out.toFloat() * 100}")
 }
 
-private fun indexSlotStats2(ix: Int, point: GzipIndexReader.Point) {
+private fun indexSlotStats2(ix: Int, point: GztoolIndexReader.Point) {
 
     val samp = point.window.take(40)
     val sampString = samp.map { it.toInt().toChar() }.joinToString("")
@@ -145,7 +145,7 @@ fun InputStream.readULongSE(): ULong {
 }
 
 
-object GzipIndexReader {
+object GztoolIndexReader {
     val emptiestByteArray = ByteArray(0)
 
     data class Point(
