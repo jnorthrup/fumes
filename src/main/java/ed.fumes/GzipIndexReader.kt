@@ -302,8 +302,23 @@ object GzipIndexReader {
     ) {
         val inflater = Inflater()
 
-        // Set dictionary from the decompressed window
-        inflater.setDictionary(point.window)
+        val windowBuffer = ByteArray(point.window_size.toInt())
+        inputStream.read(windowBuffer)
+
+        inflater.setInput(windowBuffer)
+
+        if (point.bits > 0) {
+            inflater.inflatePrime(point.bits, inputStream.read() shr (8 - point.bits))
+        }
+
+        val decompressedWindow = ByteArray(1024)
+
+        var bytesInflated = 0
+        while (!inflater.needsInput()) {
+            bytesInflated = inflater.inflate(decompressedWindow)
+        }
+
+        inflater.setDictionary(decompressedWindow, 0, bytesInflated)
 
         // Read and decompress the source file
         val compressedDataBuffer = ByteArray(1024) // Adjust the buffer size as needed
