@@ -88,7 +88,7 @@ and sometimes these need hosting, like wikis, or fresh EDDN updates, or any span
 ## Architecture
 
 https://github.com/jnorthrup/GardenKollektion represents a career's worth of distillations and experience in
-mutli-agent distributed architecture and how the internet has evolved what works gradually over time as a tug of war
+multi-agent distributed architecture and how the internet has evolved what works gradually over time as a tug of war
 between centralization hardening and decentralization survivability. Roughly speaking, a DHT with Kademlia
 architecture can be reused as an actor work-sharing network on gossip nodes. for a 64 bit DHT network, jobs may kick off
 to nominate a small network of 3,7, or 21 nodes to do some kind of shared work or election, and publish a result to IPFS
