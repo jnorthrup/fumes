@@ -81,18 +81,18 @@ This architecture is designed to support a game support tool for Elite Dangerous
 IPFS nodes, and Kotlin Common codebase.
 
 At the heart of it all is a goal, something like $5 monthly cloud hosting, which easily extends to broadband
-contributors.  
-The tenets seem simple, sometimes source data is hosted on the net, or dumps like Spansh,
-and sometimes these need hosting, like wikis, or fresh EDDN updates, or any span of usecases in between.
+contributors with static IP donating some spare cycles and bandwidth. The tenets seem simple, sometimes source data is
+hosted on the net, or dumps like Spansh, and sometimes these need hosting, like wikis, or fresh EDDN updates, or any
+span of usecases in between.
 
 ## Architecture
 
 https://github.com/jnorthrup/GardenKollektion represents a career's worth of distillations and experience in
 multi-agent distributed architecture and how the internet has evolved what works gradually over time as a tug of war
 between centralization hardening and decentralization survivability. Roughly speaking, a DHT with Kademlia
-architecture can be reused as an actor work-sharing network on gossip nodes. for a 64 bit DHT network, jobs may kick off
-to nominate a small network of 3,7, or 21 nodes to do some kind of shared work or election, and publish a result to IPFS
-journals. Grossly oversimplified but not impossible.
+architecture can be reused as an actor work-sharing network on gossip nodes. For a 64 bit DHT network, jobs may kick off
+to nominate a small network of 3,7, or 21 nodes with as few as 2 bits of address space to do some kind of shared work or
+election, and publish a result to IPFS journals. Grossly oversimplified here but not impossible.
 
 ## Services
 
